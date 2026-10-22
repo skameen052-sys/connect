@@ -24,12 +24,20 @@ def make_test_jpeg(width: int = 50, height: int = 50, color=(11, 61, 43)) -> byt
 def clean_attendance_state():
     """Ensure clean attendance state for test employees before each test."""
     today = get_attendance_today()
+    today_iso = today.isoformat()
     with SessionLocal() as db:
         db.query(Attendance).filter(
             Attendance.employee_id.in_(["AFI-001", "AFI-002"]),
             Attendance.date == today,
         ).delete()
         db.commit()
+
+    from app.core.config import settings
+    from app.services.firestore_service import FirestoreService
+    if settings.DATABASE_BACKEND == "firebase":
+        for eid in ["AFI-001", "AFI-002"]:
+            FirestoreService.delete("attendance", f"{eid}_{today_iso}")
+            FirestoreService.delete("attendances", f"{eid}_{today_iso}")
     yield
     with SessionLocal() as db:
         db.query(Attendance).filter(
@@ -37,6 +45,10 @@ def clean_attendance_state():
             Attendance.date == today,
         ).delete()
         db.commit()
+    if settings.DATABASE_BACKEND == "firebase":
+        for eid in ["AFI-001", "AFI-002"]:
+            FirestoreService.delete("attendance", f"{eid}_{today_iso}")
+            FirestoreService.delete("attendances", f"{eid}_{today_iso}")
 
 
 def get_employee_token(email: str = "employee@arshith.com", password: str = "Employee@123") -> str:

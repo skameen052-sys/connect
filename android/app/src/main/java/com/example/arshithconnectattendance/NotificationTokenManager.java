@@ -16,46 +16,31 @@ public class NotificationTokenManager {
     }
 
     public static void saveToken(String token) {
-
-        if (token == null ||
-                token.trim().isEmpty()) {
+        if (token == null || token.trim().isEmpty()) {
             return;
         }
 
-        FirebaseAuth auth =
-                FirebaseAuth.getInstance();
+        try {
+            FirebaseAuth auth = FirebaseAuth.getInstance();
+            FirebaseUser user = auth.getCurrentUser();
+            if (user == null) {
+                return;
+            }
 
-        FirebaseUser user =
-                auth.getCurrentUser();
+            String uid = user.getUid();
+            FirebaseFirestore firestore = FirebaseFirestore.getInstance();
 
-        if (user == null) {
-            return;
+            Map<String, Object> data = new HashMap<>();
+            data.put("fcmToken", token);
+            data.put("fcmTokenUpdatedAt", FieldValue.serverTimestamp());
+
+            firestore
+                    .collection("employees")
+                    .document(uid)
+                    .set(data, SetOptions.merge())
+                    .addOnFailureListener(e -> android.util.Log.e("NotificationTokenManager", "Failed to save FCM token", e));
+        } catch (Exception e) {
+            android.util.Log.e("NotificationTokenManager", "Exception saving FCM token", e);
         }
-
-        String uid = user.getUid();
-
-        FirebaseFirestore firestore =
-                FirebaseFirestore.getInstance();
-
-        Map<String, Object> data =
-                new HashMap<>();
-
-        data.put(
-                "fcmToken",
-                token
-        );
-
-        data.put(
-                "fcmTokenUpdatedAt",
-                FieldValue.serverTimestamp()
-        );
-
-        firestore
-                .collection("employees")
-                .document(uid)
-                .set(
-                        data,
-                        SetOptions.merge()
-                );
     }
 }

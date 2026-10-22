@@ -38,12 +38,15 @@ def employee_token():
 @pytest.fixture(autouse=True)
 def cleanup_test_meetings():
     yield
-    db = SessionLocal()
     try:
-        db.query(Meeting).filter(Meeting.title.like("TEST_%")).delete(synchronize_session=False)
-        db.commit()
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            db.query(Meeting).filter(Meeting.title.like("TEST_%")).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def test_admin_schedules_meeting_all_employees(admin_token):

@@ -58,27 +58,32 @@ public class MainActivity extends ComponentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        firebaseAuth = FirebaseAuth.getInstance();
-        firestore = FirebaseFirestore.getInstance();
-        setContentView(R.layout.activity_main);
+        try {
+            firebaseAuth = FirebaseAuth.getInstance();
+            firestore = FirebaseFirestore.getInstance();
+            setContentView(R.layout.activity_main);
 
-        initializeViews();
-        setupClickListeners();
+            initializeViews();
+            setupClickListeners();
 
-        FirebaseUser currentUser = firebaseAuth.getCurrentUser();
-        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String loginType = preferences.getString(KEY_LOGIN_TYPE, "");
+            FirebaseUser currentUser = firebaseAuth.getCurrentUser();
+            SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String loginType = preferences.getString(KEY_LOGIN_TYPE, "");
 
-        if (currentUser != null) {
-            if ("EMPLOYEE".equals(loginType)) {
-                checkEmployeeApproval(currentUser, false);
-                return;
+            if (currentUser != null) {
+                if ("EMPLOYEE".equals(loginType)) {
+                    checkEmployeeApproval(currentUser, false);
+                    return;
+                }
+
+                if ("ADMIN".equals(loginType)) {
+                    startActivity(new Intent(MainActivity.this, AdminDashboardActivity.class));
+                    finish();
+                }
             }
-
-            if ("ADMIN".equals(loginType)) {
-                startActivity(new Intent(MainActivity.this, AdminDashboardActivity.class));
-                finish();
-            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in MainActivity onCreate", e);
+            Toast.makeText(this, "Welcome to Arshith Connect. Please log in.", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -117,26 +122,32 @@ public class MainActivity extends ComponentActivity {
         }
 
         showLoading(true);
-        firebaseAuth.signInWithEmailAndPassword(email, password)
-                .addOnCompleteListener(this, task -> {
-                    if (!task.isSuccessful()) {
-                        showLoading(false);
-                        String message = task.getException() != null
-                                && !TextUtils.isEmpty(task.getException().getMessage())
-                                ? task.getException().getMessage()
-                                : "Login failed. Please try again.";
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                        return;
-                    }
+        try {
+            firebaseAuth.signInWithEmailAndPassword(email, password)
+                    .addOnCompleteListener(this, task -> {
+                        if (!task.isSuccessful()) {
+                            showLoading(false);
+                            String message = task.getException() != null
+                                    && !TextUtils.isEmpty(task.getException().getMessage())
+                                    ? task.getException().getMessage()
+                                    : "Login failed. Please try again.";
+                            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                            return;
+                        }
 
-                    FirebaseUser user = firebaseAuth.getCurrentUser();
-                    if (user == null) {
-                        showLoading(false);
-                        Toast.makeText(this, "Unable to get user account.", Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    checkEmployeeApproval(user, true);
-                });
+                        FirebaseUser user = firebaseAuth.getCurrentUser();
+                        if (user == null) {
+                            showLoading(false);
+                            Toast.makeText(this, "Unable to get user account.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        checkEmployeeApproval(user, true);
+                    });
+        } catch (Exception e) {
+            Log.e(TAG, "Exception during sign in", e);
+            showLoading(false);
+            Toast.makeText(this, "Sign-in error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     /**
@@ -152,25 +163,33 @@ public class MainActivity extends ComponentActivity {
         }
 
         showLoading(true);
-        firestore.collection("employees").document(user.getUid()).get()
-                .addOnSuccessListener(document -> {
-                    if (isFinishing() || isDestroyed()) return;
+        try {
+            firestore.collection("employees").document(user.getUid()).get()
+                    .addOnSuccessListener(document -> {
+                        if (isFinishing() || isDestroyed()) return;
 
-                    if (document.exists()) {
-                        handleEmployeeDocument(document, user, showLoginSuccess);
-                    } else {
-                        findEmployeeByEmail(user, showLoginSuccess);
-                    }
-                })
-                .addOnFailureListener(e -> {
-                    Log.e(TAG, "Employee UID lookup failed.", e);
-                    if (!isFinishing() && !isDestroyed()) {
-                        showLoading(false);
-                        Toast.makeText(this,
-                                "Could not verify your approval. Check your connection and try again.",
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
+                        if (document.exists()) {
+                            handleEmployeeDocument(document, user, showLoginSuccess);
+                        } else {
+                            findEmployeeByEmail(user, showLoginSuccess);
+                        }
+                    })
+                    .addOnFailureListener(e -> {
+                        Log.e(TAG, "Employee UID lookup failed.", e);
+                        if (!isFinishing() && !isDestroyed()) {
+                            showLoading(false);
+                            Toast.makeText(this,
+                                    "Could not verify your approval. Check your connection and try again.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+        } catch (Exception e) {
+            Log.e(TAG, "Exception checking employee approval", e);
+            if (!isFinishing() && !isDestroyed()) {
+                showLoading(false);
+                Toast.makeText(this, "Could not verify your account. Please check your connection.", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void findEmployeeByEmail(FirebaseUser user, boolean showLoginSuccess) {
@@ -180,35 +199,43 @@ public class MainActivity extends ComponentActivity {
             return;
         }
 
-        firestore.collection("employees").whereEqualTo("email", email).limit(2).get()
-                .addOnSuccessListener(snapshot -> {
-                    if (isFinishing() || isDestroyed()) return;
+        try {
+            firestore.collection("employees").whereEqualTo("email", email).limit(2).get()
+                    .addOnSuccessListener(snapshot -> {
+                        if (isFinishing() || isDestroyed()) return;
 
-                    if (snapshot.isEmpty()) {
-                        denyEmployeeAccess("Employee registration was not found. Please contact the administrator.");
-                        return;
-                    }
+                        if (snapshot.isEmpty()) {
+                            denyEmployeeAccess("Employee registration was not found. Please contact the administrator.");
+                            return;
+                        }
 
-                    if (snapshot.size() > 1) {
-                        showLoading(false);
-                        Toast.makeText(this,
-                                "Multiple employee records use this email. Please contact the administrator.",
-                                Toast.LENGTH_LONG).show();
-                        return;
-                    }
+                        if (snapshot.size() > 1) {
+                            showLoading(false);
+                            Toast.makeText(this,
+                                    "Multiple employee records use this email. Please contact the administrator.",
+                                    Toast.LENGTH_LONG).show();
+                            return;
+                        }
 
-                    DocumentSnapshot employeeDocument = snapshot.getDocuments().get(0);
-                    handleEmployeeDocument(employeeDocument, user, showLoginSuccess);
-                })
-                .addOnFailureListener(e -> {
-                    Log.e(TAG, "Employee email lookup failed.", e);
-                    if (!isFinishing() && !isDestroyed()) {
-                        showLoading(false);
-                        Toast.makeText(this,
-                                "Could not find your employee record. Please check your connection or contact the administrator.",
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
+                        DocumentSnapshot employeeDocument = snapshot.getDocuments().get(0);
+                        handleEmployeeDocument(employeeDocument, user, showLoginSuccess);
+                    })
+                    .addOnFailureListener(e -> {
+                        Log.e(TAG, "Employee email lookup failed.", e);
+                        if (!isFinishing() && !isDestroyed()) {
+                            showLoading(false);
+                            Toast.makeText(this,
+                                    "Could not find your employee record. Please check your connection or contact the administrator.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+        } catch (Exception e) {
+            Log.e(TAG, "Exception finding employee by email", e);
+            if (!isFinishing() && !isDestroyed()) {
+                showLoading(false);
+                Toast.makeText(this, "Could not lookup employee record. Please check your connection.", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void handleEmployeeDocument(DocumentSnapshot document,
@@ -237,7 +264,7 @@ public class MainActivity extends ComponentActivity {
             denyEmployeeAccess("Your registration was rejected. Please contact the administrator.");
             return;
         }
-        if (!"approved".equalsIgnoreCase(status)) {
+        if (!"approved".equalsIgnoreCase(status) && !"active".equalsIgnoreCase(status)) {
             denyEmployeeAccess("Your account status is not approved. Please contact the administrator.");
             return;
         }
@@ -287,21 +314,25 @@ public class MainActivity extends ComponentActivity {
     }
 
     private void saveFcmToken() {
-        FirebaseUser user = firebaseAuth.getCurrentUser();
-        if (user == null) {
-            Log.w(TAG, "Cannot save FCM token. User is null.");
-            return;
-        }
+        try {
+            FirebaseUser user = firebaseAuth.getCurrentUser();
+            if (user == null) {
+                Log.w(TAG, "Cannot save FCM token. User is null.");
+                return;
+            }
 
-        FirebaseMessaging.getInstance().getToken()
-                .addOnSuccessListener(token -> {
-                    if (TextUtils.isEmpty(token)) {
-                        Log.e(TAG, "FCM token is empty.");
-                        return;
-                    }
-                    NotificationTokenManager.saveToken(token);
-                    Log.d(TAG, "FCM token submitted to Firestore.");
-                })
-                .addOnFailureListener(e -> Log.e(TAG, "FCM token generation failed.", e));
+            FirebaseMessaging.getInstance().getToken()
+                    .addOnSuccessListener(token -> {
+                        if (TextUtils.isEmpty(token)) {
+                            Log.e(TAG, "FCM token is empty.");
+                            return;
+                        }
+                        NotificationTokenManager.saveToken(token);
+                        Log.d(TAG, "FCM token submitted to Firestore.");
+                    })
+                    .addOnFailureListener(e -> Log.e(TAG, "FCM token generation failed.", e));
+        } catch (Exception e) {
+            Log.e(TAG, "Error requesting FCM token", e);
+        }
     }
 }

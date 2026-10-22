@@ -320,6 +320,29 @@ public class RegisterActivity extends ComponentActivity {
                 .document(user.getUid())
                 .set(employee)
                 .addOnSuccessListener(unused -> {
+                    // Also create users document for website auth & shared user registry
+                    Map<String, Object> userData = new HashMap<>();
+                    userData.put("uid", user.getUid());
+                    userData.put("email", email.toLowerCase().trim());
+                    userData.put("full_name", employeeName);
+                    userData.put("role", "EMPLOYEE");
+                    userData.put("approval_status", "PENDING");
+                    userData.put("is_active", false);
+                    userData.put("status", "Pending");
+                    userData.put("employee_id", employeeId);
+                    userData.put("phone", phone);
+                    userData.put("created_at", FieldValue.serverTimestamp());
+                    firestore.collection("users").document(user.getUid()).set(userData);
+
+                    // Also create registration_requests document for admin portal
+                    Map<String, Object> reqData = new HashMap<>();
+                    reqData.put("employee_id", employeeId);
+                    reqData.put("name", employeeName);
+                    reqData.put("email", email.toLowerCase().trim());
+                    reqData.put("phone", phone);
+                    reqData.put("status", "Pending");
+                    reqData.put("created_at", FieldValue.serverTimestamp());
+                    firestore.collection("registration_requests").document(user.getUid()).set(reqData);
 
                     Toast.makeText(
                             RegisterActivity.this,

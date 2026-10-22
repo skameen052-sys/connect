@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.firebase import verify_credentials_with_firebase, update_admin_password_in_firebase
-from app.core.exceptions import DuplicateFieldsException
+from app.core.exceptions import DuplicateFieldsException, RegistrationValidationException
 from app.db.session import get_db
 from app.models.user import User
 from app.models.employee import Employee
@@ -19,8 +19,25 @@ from app.models.registration_request import RegistrationRequest
 from app.schemas.auth import LoginRequest, AdminLoginRequest, RegisterRequest, Token, UserProfileResponse
 from app.dependencies.auth import get_current_user, get_current_admin
 from app.services.firestore_service import FirestoreService
+from app.services.sync_service import sync_employee_approval_state
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+COMPANY_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9_.+-]+@arshithgroup\.com$", re.IGNORECASE)
+
+
+def is_valid_company_email(email: Optional[str]) -> bool:
+    """Validate company email ending strictly with @arshithgroup.com."""
+    if not email or not isinstance(email, str):
+        return False
+    return bool(COMPANY_EMAIL_PATTERN.match(email.strip()))
+
+
+def is_valid_employee_id_prefix(emp_id: Optional[str]) -> bool:
+    """Validate employee ID starting strictly with uppercase AFI prefix."""
+    if not emp_id or not isinstance(emp_id, str):
+        return False
+    return emp_id.strip().startswith("AFI")
 
 
 def normalize_phone_digits(phone: Optional[str]) -> str:
@@ -62,31 +79,81 @@ def is_same_phone(p1: str, p2: str) -> bool:
 @router.post("/login", response_model=Token)
 def login_employee(login_data: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate an employee with email and password via Firestore or PostgreSQL."""
-    clean_email = login_data.email.lower().strip()
+    raw_email = (login_data.email or "").strip()
+    raw_password = login_data.password or ""
+
+    # Case A: Email or password missing
+    if not raw_email or not raw_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please enter your company email and password.",
+        )
+
+    clean_email = raw_email.lower()
 
     if settings.DATABASE_BACKEND == "firebase":
-        # Block admin accounts from logging in through employee portal
-        if clean_email == "admin@arshith.com":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin credentials cannot be used to log in through Employee Login. Please use the Admin Login page.",
-            )
-
         users = FirestoreService.query("users", {"email": clean_email})
         user = users[0] if users else None
 
-        # Verify password via Firebase Authentication REST API or local hashed password
-        fb_result = verify_credentials_with_firebase(clean_email, login_data.password)
+        emps = FirestoreService.query("employees", {"email": clean_email})
+        emp = emps[0] if emps else None
+
+        reg_reqs = FirestoreService.query("registration_requests", {"email": clean_email})
+        reg_req = reg_reqs[0] if reg_reqs else None
+
+        # Check live Firebase Auth if live
+        fb_user = None
+        if not user and not emp and not reg_req:
+            try:
+                from app.core.firebase import is_firebase_live
+                import firebase_admin.auth as fb_auth
+                if is_firebase_live():
+                    fb_user = fb_auth.get_user_by_email(clean_email)
+            except Exception:
+                pass
+
+        has_account = bool(user or emp or reg_req or fb_user)
+
+        if not has_account:
+            if clean_email == "admin@arshith.com":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin credentials cannot be used to log in through Employee Login. Please use the Admin Login page.",
+                )
+            admins = FirestoreService.query("admins", {"email": clean_email})
+            if admins:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin credentials cannot be used to log in through Employee Login. Please use the Admin Login page.",
+                )
+            # Case B: Unsupported domain / invalid company email
+            if not is_valid_company_email(clean_email):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Please use your company email ending with @arshithgroup.com.",
+                )
+            # Case C: Employee account does not exist
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="You are not registered with Arshith Connect. Please register using your company email or contact HR.",
+            )
+
+        # Case D: Verify password via Firebase Authentication or local hashed password
+        fb_result = verify_credentials_with_firebase(clean_email, raw_password)
         password_valid = False
         if fb_result:
             password_valid = True
             if user:
                 FirestoreService.update("users", user.get("id"), {
-                    "hashed_password": get_password_hash(login_data.password),
+                    "hashed_password": get_password_hash(raw_password),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 })
-        elif user and user.get("hashed_password") and verify_password(login_data.password, user["hashed_password"]):
-            password_valid = True
+        else:
+            for u in users:
+                if u.get("hashed_password") and verify_password(raw_password, u["hashed_password"]):
+                    password_valid = True
+                    user = u
+                    break
 
         if not password_valid:
             raise HTTPException(
@@ -95,42 +162,77 @@ def login_employee(login_data: LoginRequest, db: Session = Depends(get_db)):
             )
 
         role = str(user.get("role", "employee")).strip().lower() if user else "employee"
-        if role == "admin":
+        if role == "admin" or clean_email == "admin@arshith.com":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin credentials cannot be used to log in through Employee Login. Please use the Admin Login page.",
             )
 
-        raw_status = (user.get("approval_status") if user else None) or (user.get("status") if user else None) or "approved"
-        approval_status = str(raw_status).strip().upper()
-        if approval_status == "PENDING":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your registration is pending Admin approval. Please wait until your account is approved.",
-            )
-        if approval_status == "REJECTED":
-            detail = "Your registration request was not approved. Please contact company administration."
-            if user and user.get("rejection_reason"):
-                detail += f" Reason: {user['rejection_reason']}"
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+        pg_emp = db.query(Employee).filter(func.lower(func.trim(Employee.email)) == clean_email).first() if db else None
+        pg_user = db.query(User).filter(func.lower(func.trim(User.email)) == clean_email).first() if db else None
+        pg_req = db.query(RegistrationRequest).filter(func.lower(func.trim(RegistrationRequest.email)) == clean_email).first() if db else None
 
-        is_active = user.get("is_active", True) if user else True
-        if not is_active or approval_status not in ["APPROVED", "ACTIVE"]:
+        # Check for explicitly deactivated accounts
+        is_inactive = (
+            any(str(e.get("status", "")).strip().lower() == "inactive" for e in emps) or
+            any(u.get("is_active") is False and str(u.get("approval_status", "")).upper() == "APPROVED" for u in users) or
+            (pg_emp and str(pg_emp.status).strip().lower() == "inactive") or
+            (pg_user and pg_user.is_active is False and pg_user.approval_status == "APPROVED")
+        )
+        if is_inactive:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your account is currently inactive. Please contact administration.",
             )
 
-        emps = FirestoreService.query("employees", {"email": clean_email})
+        # Determine authoritative approval status across all connected platforms (mobile app, website, firestore, postgres)
+        emp_approved = any(str(e.get("status", "")).strip().lower() in ("approved", "active") for e in emps)
+        user_approved = any(str(u.get("approval_status", "")).strip().upper() in ("APPROVED", "ACTIVE") or str(u.get("status", "")).strip().lower() in ("approved", "active") for u in users)
+        req_approved = any(str(r.get("status", "")).strip().lower() == "approved" for r in reg_reqs)
+
+        if pg_emp and str(pg_emp.status).strip().lower() in ("approved", "active"):
+            emp_approved = True
+        if pg_user and str(pg_user.approval_status).strip().upper() in ("APPROVED", "ACTIVE"):
+            user_approved = True
+        if pg_req and str(pg_req.status).strip().lower() == "approved":
+            req_approved = True
+
+        is_effective_approved = emp_approved or user_approved or req_approved
+
+        emp_rejected = any(str(e.get("status", "")).strip().lower() == "rejected" for e in emps)
+        user_rejected = any(str(u.get("approval_status", "")).strip().upper() == "REJECTED" or str(u.get("status", "")).strip().lower() == "rejected" for u in users)
+        req_rejected = any(str(r.get("status", "")).strip().lower() == "rejected" for r in reg_reqs)
+        if pg_user and pg_user.approval_status == "REJECTED":
+            user_rejected = True
+        if pg_req and pg_req.status == "Rejected":
+            req_rejected = True
+
+        is_effective_rejected = (emp_rejected or user_rejected or req_rejected) and not is_effective_approved
+
+        if is_effective_approved:
+            # Synchronize approval across Firestore and PostgreSQL
+            sync_employee_approval_state(clean_email, "approved", db=db)
+            users = FirestoreService.query("users", {"email": clean_email})
+            emps = FirestoreService.query("employees", {"email": clean_email})
+            user = users[0] if users else user
+            emp = next((e for e in emps if str(e.get("status", "")).lower() in ("approved", "active")), emps[0] if emps else emp)
+        elif is_effective_rejected:
+            sync_employee_approval_state(clean_email, "rejected", db=db)
+            rejection_reason = (user.get("rejection_reason") if user else None) or (emp.get("rejection_reason") if emp else None)
+            detail = "Your registration request was not approved. Please contact company administration."
+            if rejection_reason:
+                detail += f" Reason: {rejection_reason}"
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your registration is awaiting admin approval. You can log in after your account is approved.",
+            )
+
         if not emps and user and user.get("id"):
             emps = FirestoreService.query("employees", {"user_id": user["id"]})
-        emp = emps[0] if emps else None
-
-        if emp and emp.get("status") != "Active":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your account is currently inactive. Please contact administration.",
-            )
+        if not emp:
+            emp = emps[0] if emps else None
 
         emp_id = (emp.get("employee_id") or emp.get("employeeId")) if emp else "EMP-001"
         emp_name = (emp.get("full_name") or emp.get("fullName")) if emp else clean_email.split("@")[0]
@@ -163,24 +265,46 @@ def login_employee(login_data: LoginRequest, db: Session = Depends(get_db)):
         }
 
     # PostgreSQL fallback
-    user = db.query(User).filter(User.email == clean_email).first()
-    if not user or not verify_password(login_data.password, user.hashed_password):
+    user = db.query(User).filter(func.lower(func.trim(User.email)) == clean_email).first()
+    emp = db.query(Employee).filter(func.lower(func.trim(Employee.email)) == clean_email).first()
+    reg_req = db.query(RegistrationRequest).filter(func.lower(func.trim(RegistrationRequest.email)) == clean_email).first()
+
+    has_account = bool(user or emp or reg_req)
+
+    if not has_account:
+        # Case B: Unsupported domain / invalid company email
+        if not is_valid_company_email(clean_email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please use your company email ending with @arshithgroup.com.",
+            )
+        # Case C: Employee account does not exist
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid employee email or password.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You are not registered with Arshith Connect. Please register using your company email or contact HR.",
         )
 
-    if user.role == "admin" or user.role != "employee":
+    if user and (user.role == "admin" or user.role != "employee"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin credentials cannot be used to log in through Employee Login. Please use the Admin Login page.",
         )
 
+    # Case D: Verify password
+    if not user or not verify_password(raw_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid employee email or password.",
+        )
+
+    # Case E: Registration is pending admin approval
     if user.approval_status == "PENDING":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+            detail="Your registration is awaiting admin approval. You can log in after your account is approved.",
         )
+
+    # Case F: Registration was rejected or the account is disabled
     if user.approval_status == "REJECTED":
         detail = "Your registration request was not approved. Please contact company administration."
         if user.rejection_reason:
@@ -193,11 +317,10 @@ def login_employee(login_data: LoginRequest, db: Session = Depends(get_db)):
             detail="Your account is currently inactive. Please contact administration.",
         )
 
-    emp = db.query(Employee).filter(Employee.user_id == user.id).first()
     if not emp:
-        emp = db.query(Employee).filter(Employee.email == user.email).first()
+        emp = db.query(Employee).filter(Employee.user_id == user.id).first()
 
-    if emp and emp.status != "Active":
+    if emp and emp.status not in ["Active", "approved", "APPROVED"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account is currently inactive. Please contact administration.",
@@ -275,8 +398,16 @@ def login_admin(login_data: AdminLoginRequest, db: Session = Depends(get_db)):
                     "hashed_password": get_password_hash(login_data.password),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 })
-        elif user and user.get("hashed_password") and verify_password(login_data.password, user["hashed_password"]):
-            password_valid = True
+        else:
+            for u in users:
+                if u.get("hashed_password") and verify_password(login_data.password, u["hashed_password"]):
+                    password_valid = True
+                    user = u
+                    break
+            if not password_valid and admin_doc:
+                admin_pwd_hash = admin_doc.get("hashed_password") or admin_doc.get("password_hash")
+                if admin_pwd_hash and verify_password(login_data.password, admin_pwd_hash):
+                    password_valid = True
 
         if not password_valid:
             raise HTTPException(
@@ -392,57 +523,130 @@ def login_admin(login_data: AdminLoginRequest, db: Session = Depends(get_db)):
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
     """Self-registration for new employees (creates pending User, Employee, and RegistrationRequest)."""
-    clean_emp_id = data.employeeId.strip().upper()
-    clean_email = data.email.lower().strip()
-    clean_phone = normalize_phone_digits(data.phone)
-    phone_digits = re.sub(r"\D", "", clean_phone)
+    raw_emp_id = (data.employeeId or data.employee_id or "").strip()
+    raw_full_name = (data.fullName or data.full_name or "").strip()
+    raw_email = (data.email or "").strip()
+    raw_phone = (data.phone or "").strip()
+    raw_password = data.password or ""
+    raw_confirm = data.confirmPassword if data.confirmPassword is not None else data.confirm_password
 
-    errors = {}
+    val_errors = {}
+
+    # 1. Field-level validations
+    if not raw_full_name:
+        val_errors["fullName"] = "Please enter your full name."
+
+    if not raw_emp_id:
+        val_errors["employeeId"] = "Please enter your employee ID."
+    elif not raw_emp_id.startswith("AFI"):
+        val_errors["employeeId"] = "Employee ID must start with AFI."
+
+    if not raw_email:
+        val_errors["email"] = "Please enter your company email address."
+    elif not is_valid_company_email(raw_email):
+        val_errors["email"] = "Please use your company email ending with @arshithgroup.com."
+
+    clean_phone = normalize_phone_digits(raw_phone)
+    phone_digits = re.sub(r"\D", "", clean_phone)
+    if not raw_phone or raw_phone == "--" or len(phone_digits) < 10 or len(phone_digits) > 15:
+        val_errors["phone"] = "Please enter a valid phone number."
+
+    if not raw_password:
+        val_errors["password"] = "Please enter your password."
+    elif len(raw_password) < 8:
+        val_errors["password"] = "Password must contain at least 8 characters."
+
+    if raw_confirm is not None and raw_password != raw_confirm:
+        val_errors["confirmPassword"] = "Passwords do not match."
+
+    if val_errors:
+        raise RegistrationValidationException(errors=val_errors)
+
+    clean_emp_id = raw_emp_id.upper()
+    clean_full_name = raw_full_name
+    clean_email = raw_email.lower()
+
+    # 2. Duplicate checks
+    dup_errors = {}
 
     if settings.DATABASE_BACKEND == "firebase":
         all_emps = FirestoreService.list_all("employees")
         all_users = FirestoreService.list_all("users")
+        all_reqs = FirestoreService.list_all("registration_requests")
 
-        # 1. Independent check: Employee ID
+        # Independent check: Employee ID
         for e in all_emps:
             eid = str(e.get("employee_id") or e.get("employeeId") or "").strip().upper()
             if eid == clean_emp_id:
-                errors["employee_id"] = "This Employee ID already exists."
+                dup_errors["employeeId"] = "This employee ID is already registered. Please check your details or contact HR."
+                dup_errors["employee_id"] = "This employee ID is already registered. Please check your details or contact HR."
                 break
-
-        # 2. Independent check: Email address
-        for e in all_emps:
-            if str(e.get("email", "")).strip().lower() == clean_email:
-                errors["email"] = "This email address is already registered."
-                break
-        if "email" not in errors:
-            for u in all_users:
-                if str(u.get("email", "")).strip().lower() == clean_email:
-                    errors["email"] = "This email address is already registered."
+        if "employeeId" not in dup_errors:
+            for r in all_reqs:
+                eid = str(r.get("employee_id") or r.get("employeeId") or "").strip().upper()
+                if eid == clean_emp_id:
+                    dup_errors["employeeId"] = "This employee ID is already registered. Please check your details or contact HR."
+                    dup_errors["employee_id"] = "This employee ID is already registered. Please check your details or contact HR."
                     break
 
-        # 3. Independent check: Phone number
+        # Independent check: Email address
+        for e in all_emps:
+            if str(e.get("email", "")).strip().lower() == clean_email:
+                dup_errors["email"] = "An account with this company email already exists. Please log in or contact HR."
+                break
+        if "email" not in dup_errors:
+            for u in all_users:
+                if str(u.get("email", "")).strip().lower() == clean_email:
+                    dup_errors["email"] = "An account with this company email already exists. Please log in or contact HR."
+                    break
+        if "email" not in dup_errors:
+            for r in all_reqs:
+                if str(r.get("email", "")).strip().lower() == clean_email:
+                    dup_errors["email"] = "An account with this company email already exists. Please log in or contact HR."
+                    break
+
+        # Independent check: Phone number
         if clean_phone:
             for e in all_emps:
                 ep = str(e.get("phone", "")).strip()
                 if is_same_phone(clean_phone, ep):
-                    errors["phone"] = "This phone number is already registered."
+                    dup_errors["phone"] = "This phone number is already registered."
                     break
 
-        if errors:
-            raise DuplicateFieldsException(errors=errors)
+        if dup_errors:
+            raise DuplicateFieldsException(errors=dup_errors)
 
         # Create new user in PENDING approval state
         now_iso = datetime.now(timezone.utc).isoformat()
-        user_id = int(datetime.now(timezone.utc).timestamp() * 1000)
+        user_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
+
+        # Attempt to create Firebase Auth user if live
+        try:
+            from app.core.firebase import is_firebase_live
+            import firebase_admin.auth as fb_auth
+            if is_firebase_live():
+                try:
+                    user_record = fb_auth.get_user_by_email(clean_email)
+                    user_id = user_record.uid
+                except Exception:
+                    user_record = fb_auth.create_user(
+                        email=clean_email,
+                        password=raw_password,
+                        display_name=clean_full_name,
+                    )
+                    user_id = user_record.uid
+        except Exception:
+            pass
 
         user_doc = {
             "id": user_id,
+            "uid": user_id,
             "email": clean_email,
-            "hashed_password": get_password_hash(data.password),
+            "hashed_password": get_password_hash(raw_password),
             "role": "employee",
             "is_active": False,
             "approval_status": "PENDING",
+            "status": "pending",
             "created_at": now_iso,
             "updated_at": now_iso,
         }
@@ -450,27 +654,39 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
 
         emp_doc = {
             "id": user_id,
+            "uid": user_id,
+            "employeeId": clean_emp_id,
             "employee_id": clean_emp_id,
-            "user_id": user_id,
-            "full_name": data.fullName.strip(),
+            "name": clean_full_name,
+            "fullName": clean_full_name,
+            "full_name": clean_full_name,
             "email": clean_email,
             "phone": clean_phone if clean_phone else "--",
+            "role": "Employee",
             "department": "Operations",
             "designation": "Operations Associate",
-            "status": "Pending",
+            "status": "pending",
+            "reviewedAt": None,
+            "reviewedBy": None,
             "shift": "General (09:30 AM - 06:30 PM)",
             "location": "HQ Office",
+            "createdAt": now_iso,
             "created_at": now_iso,
             "updated_at": now_iso,
         }
-        FirestoreService.save("employees", clean_emp_id, emp_doc)
+        FirestoreService.save("employees", user_id, emp_doc)
+        if str(user_id) != clean_emp_id:
+            FirestoreService.save("employees", clean_emp_id, emp_doc)
 
         req_code = f"REQ-{datetime.now().strftime('%Y%m%d%H%M%S')[-4:]}"
         reg_req = {
             "id": user_id,
+            "requestId": user_id,
             "request_code": req_code,
-            "full_name": data.fullName.strip(),
+            "full_name": clean_full_name,
+            "name": clean_full_name,
             "employee_id": clean_emp_id,
+            "employeeId": clean_emp_id,
             "email": clean_email,
             "phone": clean_phone if clean_phone else "--",
             "status": "Pending",
@@ -484,12 +700,58 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
             actor_uid=clean_email,
             action="EMPLOYEE_REGISTRATION_SUBMITTED",
             target_record=clean_emp_id,
-            metadata={"request_code": req_code, "status": "Pending"},
+            metadata={"request_code": req_code, "status": "pending", "uid": user_id},
         )
+
+        # Dual-write to PostgreSQL database for cross-platform data synchronization
+        try:
+            pg_user = db.query(User).filter(func.lower(func.trim(User.email)) == clean_email).first()
+            if not pg_user:
+                pg_user = User(
+                    email=clean_email,
+                    hashed_password=get_password_hash(raw_password),
+                    role="employee",
+                    is_active=False,
+                    approval_status="PENDING",
+                )
+                db.add(pg_user)
+                db.commit()
+                db.refresh(pg_user)
+
+            pg_emp = db.query(Employee).filter(func.upper(func.trim(Employee.employee_id)) == clean_emp_id).first()
+            if not pg_emp:
+                pg_emp = Employee(
+                    user_id=pg_user.id,
+                    employee_id=clean_emp_id,
+                    full_name=clean_full_name,
+                    email=clean_email,
+                    phone=clean_phone if clean_phone else "--",
+                    department="Operations",
+                    designation="Operations Associate",
+                    status="Pending",
+                )
+                db.add(pg_emp)
+                db.commit()
+
+            pg_req = db.query(RegistrationRequest).filter(func.lower(func.trim(RegistrationRequest.email)) == clean_email).first()
+            if not pg_req:
+                pg_req = RegistrationRequest(
+                    request_code=req_code,
+                    full_name=clean_full_name,
+                    employee_id=clean_emp_id,
+                    email=clean_email,
+                    phone=clean_phone if clean_phone else "--",
+                    status="Pending",
+                )
+                db.add(pg_req)
+                db.commit()
+        except Exception as e:
+            logger.warning(f"Dual-write registration to PostgreSQL encountered: {e}")
+            db.rollback()
 
         return {
             "success": True,
-            "message": "Your registration request has been submitted successfully. Please wait for Admin approval before logging in.",
+            "message": "Your registration request is awaiting admin approval.",
             "status": "PENDING",
             "employeeId": clean_emp_id,
         }
@@ -500,8 +762,14 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         .filter(func.upper(func.trim(Employee.employee_id)) == clean_emp_id)
         .first()
     )
-    if existing_emp_by_id:
-        errors["employee_id"] = "This Employee ID already exists."
+    existing_req_by_id = (
+        db.query(RegistrationRequest)
+        .filter(func.upper(func.trim(RegistrationRequest.employee_id)) == clean_emp_id)
+        .first()
+    )
+    if existing_emp_by_id or existing_req_by_id:
+        dup_errors["employeeId"] = "This employee ID is already registered. Please check your details or contact HR."
+        dup_errors["employee_id"] = "This employee ID is already registered. Please check your details or contact HR."
 
     existing_emp_by_email = (
         db.query(Employee)
@@ -513,8 +781,13 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         .filter(func.lower(func.trim(User.email)) == clean_email)
         .first()
     )
-    if existing_emp_by_email or existing_user_by_email:
-        errors["email"] = "This email address is already registered."
+    existing_req_by_email = (
+        db.query(RegistrationRequest)
+        .filter(func.lower(func.trim(RegistrationRequest.email)) == clean_email)
+        .first()
+    )
+    if existing_emp_by_email or existing_user_by_email or existing_req_by_email:
+        dup_errors["email"] = "An account with this company email already exists. Please log in or contact HR."
 
     if clean_phone:
         all_phones = (
@@ -528,16 +801,16 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         )
         for (ep,) in all_phones:
             if is_same_phone(clean_phone, ep):
-                errors["phone"] = "This phone number is already registered."
+                dup_errors["phone"] = "This phone number is already registered."
                 break
 
-    if errors:
-        raise DuplicateFieldsException(errors=errors)
+    if dup_errors:
+        raise DuplicateFieldsException(errors=dup_errors)
 
     try:
         new_user = User(
             email=clean_email,
-            hashed_password=get_password_hash(data.password),
+            hashed_password=get_password_hash(raw_password),
             role="employee",
             is_active=False,
             approval_status="PENDING",
@@ -548,7 +821,7 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         new_emp = Employee(
             employee_id=clean_emp_id,
             user_id=new_user.id,
-            full_name=data.fullName.strip(),
+            full_name=clean_full_name,
             email=clean_email,
             phone=clean_phone if clean_phone else "--",
             department="Operations",
@@ -560,7 +833,7 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         req_code = f"REQ-{datetime.now().strftime('%Y%m%d%H%M%S')[-4:]}"
         reg_req = RegistrationRequest(
             request_code=req_code,
-            full_name=data.fullName.strip(),
+            full_name=clean_full_name,
             employee_id=clean_emp_id,
             email=clean_email,
             phone=clean_phone if clean_phone else "--",
@@ -570,11 +843,11 @@ def register_employee(data: RegisterRequest, db: Session = Depends(get_db)):
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise DuplicateFieldsException(errors={"employee_id": "This Employee ID already exists."})
+        raise DuplicateFieldsException(errors={"employeeId": "This employee ID is already registered. Please check your details or contact HR."})
 
     return {
         "success": True,
-        "message": "Your registration request has been submitted successfully. Please wait for Admin approval before logging in.",
+        "message": "Your registration request is awaiting admin approval.",
         "status": "PENDING",
         "employeeId": clean_emp_id,
     }

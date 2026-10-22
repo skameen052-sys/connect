@@ -27,35 +27,36 @@ export default function EmployeeRegister() {
     const newErrors = {};
 
     if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Employee name is required';
+      newErrors.fullName = 'Please enter your full name.';
     }
 
     if (!formData.employeeId.trim()) {
-      newErrors.employeeId = 'Employee ID is required (e.g. AFI-001)';
+      newErrors.employeeId = 'Please enter your employee ID.';
+    } else if (!formData.employeeId.trim().startsWith('AFI')) {
+      newErrors.employeeId = 'Employee ID must start with AFI.';
     }
 
     if (!formData.email.trim()) {
-      newErrors.email = 'Official email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = 'Please enter your company email address.';
+    } else if (!/^[a-zA-Z0-9_.+-]+@arshithgroup\.com$/i.test(formData.email.trim())) {
+      newErrors.email = 'Please use your company email ending with @arshithgroup.com.';
     }
 
-    if (!formData.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    } else if (!/^[0-9+\s-]{8,15}$/.test(formData.phone)) {
-      newErrors.phone = 'Please enter a valid phone number';
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    if (!formData.phone.trim() || phoneDigits.length < 10 || phoneDigits.length > 15) {
+      newErrors.phone = 'Please enter a valid phone number.';
     }
 
     if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+      newErrors.password = 'Please enter your password.';
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'Password must contain at least 8 characters.';
     }
 
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = 'Passwords do not match.';
     }
 
     setErrors(newErrors);
@@ -96,6 +97,9 @@ export default function EmployeeRegister() {
       const fieldErrors = err.errors || {};
       const newErrors = {};
 
+      if (fieldErrors.fullName || fieldErrors.full_name) {
+        newErrors.fullName = fieldErrors.fullName || fieldErrors.full_name;
+      }
       if (fieldErrors.employee_id || fieldErrors.employeeId) {
         newErrors.employeeId = fieldErrors.employee_id || fieldErrors.employeeId;
       }
@@ -105,18 +109,24 @@ export default function EmployeeRegister() {
       if (fieldErrors.phone) {
         newErrors.phone = fieldErrors.phone;
       }
+      if (fieldErrors.password) {
+        newErrors.password = fieldErrors.password;
+      }
+      if (fieldErrors.confirmPassword || fieldErrors.confirm_password) {
+        newErrors.confirmPassword = fieldErrors.confirmPassword || fieldErrors.confirm_password;
+      }
 
       // Check for any other field errors
       Object.keys(fieldErrors).forEach((key) => {
-        if (!['employee_id', 'employeeId', 'email', 'phone'].includes(key)) {
+        if (!['fullName', 'full_name', 'employee_id', 'employeeId', 'email', 'phone', 'password', 'confirmPassword', 'confirm_password'].includes(key)) {
           newErrors[key] = fieldErrors[key];
         }
       });
 
-      // Only display top-level banner if there are no field-specific errors
+      // Only display top-level banner if there are no field-specific errors, or if server error occurred
       const hasSpecificFieldErrors = Object.keys(newErrors).length > 0;
-      if (!hasSpecificFieldErrors) {
-        newErrors.form = err.message || 'Registration failed. Please try again.';
+      if (!hasSpecificFieldErrors || !err.status || err.status >= 500) {
+        newErrors.form = err.message || err.detail || "We couldn't complete your registration right now. Please try again later.";
       }
 
       setErrors(newErrors);
@@ -155,7 +165,7 @@ export default function EmployeeRegister() {
                 Registration Submitted!
               </h2>
               <p style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.6, marginBottom: '20px' }}>
-                Your registration request has been submitted successfully. Please wait for Admin approval before logging in.
+                Your registration request is awaiting admin approval.
               </p>
               <button
                 type="button"

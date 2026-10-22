@@ -24,6 +24,8 @@ class Attendance(Base):
     status: Mapped[str] = mapped_column(String(50), default="Present", nullable=False)  # "Present", "Late", "Absent"
     duration: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="In Progress")
     is_late: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    late_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    late_reason_submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Photo storage keys (relative to storage/attendance_photos)
     check_in_photo_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

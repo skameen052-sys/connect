@@ -21,6 +21,7 @@ from app.schemas.attendance import (
     AttendanceTodayStatusResponse,
     OfficeLocationResponse,
     LocationValidationRequest,
+    LateReasonSubmissionRequest,
 )
 from app.dependencies.auth import get_current_user, get_current_admin, get_current_employee
 from app.services.attendance_service import (
@@ -36,10 +37,31 @@ from app.services.attendance_service import (
     get_employee_authorized_work_mode,
 )
 from app.services.firestore_service import FirestoreService
+from app.services.sync_service import sync_attendance_to_postgres
 
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
+
+
+def _parse_time_str(val: Any) -> str:
+    """Parse Timestamp, datetime, or time string to standard human-readable format."""
+    if not val:
+        return "--"
+    if hasattr(val, "strftime"):
+        return val.strftime("%I:%M %p")
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    s = str(val).strip()
+    if not s or s == "None":
+        return "--"
+    if "T" in s:
+        try:
+            dt = datetime.fromisoformat(s)
+            return dt.strftime("%I:%M %p")
+        except Exception:
+            return s
+    return s
 
 
 def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
@@ -88,6 +110,7 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
             or att.get("check_in_photo_url")
             or att.get("checkInPhotoUrl")
             or att.get("photoUrl")
+            or att.get("photoCaptured")
         )
 
         photo_url = att.get("check_in_photo_url") or att.get("checkInPhotoUrl") or att.get("photoUrl")
@@ -98,6 +121,12 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
         if not emp_uid and isinstance(emp, dict):
             emp_uid = emp.get("uid") or emp.get("id")
 
+        raw_checkin = att.get("check_in_time") or att.get("checkIn") or "--"
+        raw_checkout = att.get("check_out_time") or att.get("checkOut") or "--"
+
+        checkin_str = _parse_time_str(raw_checkin) if raw_checkin != "--" else "--"
+        checkout_str = _parse_time_str(raw_checkout) if raw_checkout != "--" else "--"
+
         return {
             "id": att.get("id"),
             "employeeId": emp_id,
@@ -105,12 +134,15 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
             "department": emp_dept,
             "date": date_str,
             "day": weekday_name,
-            "checkIn": att.get("check_in_time") or att.get("checkIn") or "--",
-            "checkOut": att.get("check_out_time") or att.get("checkOut") or "--",
+            "checkIn": checkin_str,
+            "checkOut": checkout_str,
             "workMode": att.get("work_mode") or att.get("workMode") or "WFO",
             "status": att.get("status", "Present"),
             "duration": att.get("duration") or "--",
-            "isLate": bool(att.get("is_late") or att.get("isLate")),
+            "isLate": bool(att.get("is_late") or att.get("isLate") or att.get("lateLogin")),
+            "lateReason": att.get("late_reason") or att.get("lateReason") or None,
+            "lateReasonStatus": att.get("late_reason_status") or att.get("lateReasonStatus") or ("SUBMITTED" if (att.get("late_reason") or att.get("lateReason")) else ("PENDING" if (att.get("is_late") or att.get("isLate") or att.get("lateLogin")) else "NOT_REQUIRED")),
+            "lateReasonSubmittedAt": att.get("late_reason_submitted_at") or att.get("lateReasonSubmittedAt") or None,
             "checkInLatitude": att.get("check_in_latitude") or att.get("checkInLatitude"),
             "checkInLongitude": att.get("check_in_longitude") or att.get("checkInLongitude"),
             "checkInLocationAccuracy": att.get("check_in_location_accuracy") or att.get("checkInLocationAccuracy"),
@@ -129,6 +161,10 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
     emp_name = emp.full_name if emp else (att.employee.full_name if att.employee else "Employee")
     emp_dept = emp.department if emp else (att.employee.department if att.employee else "Operations")
     weekday_name = att.date.strftime("%A") if att.date else ""
+    is_rec_late = bool(att.is_late or (att.status and att.status.lower() == "late"))
+    late_reason_val = getattr(att, "late_reason", None)
+    late_status_val = "SUBMITTED" if late_reason_val else ("PENDING" if is_rec_late else "NOT_REQUIRED")
+    submitted_at_val = getattr(att, "late_reason_submitted_at", None)
 
     return {
         "id": att.id,
@@ -142,7 +178,10 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
         "workMode": att.work_mode,
         "status": att.status,
         "duration": att.duration or "--",
-        "isLate": att.is_late,
+        "isLate": is_rec_late,
+        "lateReason": late_reason_val or None,
+        "lateReasonStatus": late_status_val,
+        "lateReasonSubmittedAt": submitted_at_val.isoformat() if submitted_at_val else None,
         "checkInLatitude": att.check_in_latitude,
         "checkInLongitude": att.check_in_longitude,
         "checkInLocationAccuracy": att.check_in_location_accuracy,
@@ -160,29 +199,39 @@ def format_attendance_response(att: Any, emp: Optional[Any] = None) -> dict:
     }
 
 
-def is_checkin_late(now: datetime, db: Session) -> bool:
-    """Check if check-in time is past office start time + grace period in configured timezone."""
-    if settings.DATABASE_BACKEND == "firebase":
-        timings = FirestoreService.query("office_timings", {"timing_type": "REGULAR"})
-        timing = timings[0] if timings else {}
-        start_str = timing.get("start_time", "09:30")
-        grace = timing.get("grace_minutes", 2)
-    else:
-        timing = db.query(OfficeTiming).filter(OfficeTiming.timing_type == "REGULAR").first()
-        start_str = timing.start_time if timing else "09:30"
-        grace = timing.grace_minutes if timing else 2
+def is_checkin_late(now: datetime, db: Session = None) -> bool:
+    """
+    Check if check-in time is past office start time in configured timezone (9:30 AM IST).
+    Rule:
+    - Before or at 9:30 AM IST: on-time (is_late=False)
+    - After 9:30 AM IST: late (is_late=True, mandatory late reason required)
+    """
+    start_str = "09:30"
+    if db is not None:
+        try:
+            if settings.DATABASE_BACKEND == "firebase":
+                timings = FirestoreService.query("office_timings", {"timing_type": "REGULAR"})
+                if timings:
+                    start_str = timings[0].get("start_time", "09:30")
+            else:
+                timing = db.query(OfficeTiming).filter(OfficeTiming.timing_type == "REGULAR").first()
+                if timing and timing.start_time:
+                    start_str = timing.start_time
+        except Exception:
+            pass
 
     try:
         sh, sm = [int(p) for p in start_str.split(":")]
-        cutoff_minutes = sh * 60 + sm + grace
+        cutoff_minutes = sh * 60 + sm
         current_minutes = now.hour * 60 + now.minute
         return current_minutes > cutoff_minutes
     except Exception:
-        return (now.hour * 60 + now.minute) > (9 * 60 + 32)
+        return (now.hour * 60 + now.minute) > (9 * 60 + 30)
 
 
 @router.get("", response_model=List[dict])
 @router.get("/records", response_model=List[dict])
+@router.get("/history", response_model=List[dict])
 def get_attendance_records(
     search: Optional[str] = Query(None),
     workMode: Optional[str] = Query(None),
@@ -191,15 +240,73 @@ def get_attendance_records(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get all attendance records with optional search and filters via Firestore or PostgreSQL."""
+    """Get all attendance records across both mobile and web via Firestore or PostgreSQL."""
     if settings.DATABASE_BACKEND == "firebase":
-        records = FirestoreService.list_all("attendance")
+        top_records = FirestoreService.list_all("attendance")
+        cg_records = FirestoreService.collection_group("records")
+
         all_emps = {}
         for e in FirestoreService.list_all("employees"):
-            for k in ("employee_id", "employeeId", "id", "uid"):
+            for k in ("employee_id", "employeeId", "id", "uid", "_firestore_id"):
                 val = e.get(k)
                 if val:
                     all_emps[str(val)] = e
+            if e.get("email"):
+                all_emps[str(e["email"]).lower().strip()] = e
+
+        merged = {}
+        for r in top_records:
+            emp_id = r.get("employee_id") or r.get("employeeId") or r.get("employee_uid") or ""
+            dt = str(r.get("date", "")).strip()
+            key = f"{emp_id}_{dt}"
+            merged[key] = r
+
+        for cr in cg_records:
+            eid = cr.get("employeeId") or cr.get("employee_id") or cr.get("uid") or ""
+            dt = str(cr.get("date", "")).strip()
+            key = f"{eid}_{dt}"
+            emp = all_emps.get(str(eid)) or all_emps.get(str(cr.get("email", "")).lower().strip()) or {}
+            real_emp_id = emp.get("employeeId") or emp.get("employee_id") or eid
+            real_key = f"{real_emp_id}_{dt}"
+
+            if real_key not in merged and key not in merged:
+                real_name = emp.get("name") or emp.get("fullName") or emp.get("full_name") or cr.get("name") or "Employee"
+                real_dept = emp.get("department") or "Operations"
+                check_in_str = _parse_time_str(cr.get("checkIn") or cr.get("check_in_time"))
+                check_out_str = _parse_time_str(cr.get("checkOut") or cr.get("check_out_time"))
+
+                merged[real_key] = {
+                    "id": f"{real_emp_id}_{dt}",
+                    "employee_id": real_emp_id,
+                    "employeeId": real_emp_id,
+                    "employee_uid": eid,
+                    "employeeUid": eid,
+                    "employeeName": real_name,
+                    "name": real_name,
+                    "department": real_dept,
+                    "date": dt,
+                    "check_in_time": check_in_str,
+                    "check_out_time": check_out_str,
+                    "work_mode": cr.get("workMode") or cr.get("work_mode") or "WFO",
+                    "status": cr.get("status", "Present"),
+                    "is_late": bool(cr.get("lateLogin") or cr.get("is_late")),
+                    "check_in_photo_url": cr.get("checkInPhotoUrl") or cr.get("photoUrl"),
+                    "checkInPhotoUrl": cr.get("checkInPhotoUrl") or cr.get("photoUrl"),
+                    "hasCheckInPhoto": bool(cr.get("checkInPhotoUrl") or cr.get("photoCaptured")),
+                    "duration": cr.get("duration") or "--",
+                }
+            else:
+                target_key = real_key if real_key in merged else key
+                if not merged[target_key].get("check_in_photo_url") and cr.get("checkInPhotoUrl"):
+                    merged[target_key]["check_in_photo_url"] = cr["checkInPhotoUrl"]
+                    merged[target_key]["checkInPhotoUrl"] = cr["checkInPhotoUrl"]
+                    merged[target_key]["hasCheckInPhoto"] = True
+                if (not merged[target_key].get("check_out_time") or merged[target_key].get("check_out_time") == "--") and cr.get("checkOut"):
+                    merged[target_key]["check_out_time"] = _parse_time_str(cr["checkOut"])
+                if cr.get("duration") and cr.get("duration") != "--":
+                    merged[target_key]["duration"] = cr.get("duration")
+
+        records = list(merged.values())
 
         filtered = []
         for r in records:
@@ -270,11 +377,42 @@ def get_my_attendance_history(
     db: Session = Depends(get_db),
     employee=Depends(get_current_employee),
 ):
-    """Get personal attendance records for the authenticated employee."""
+    """Get personal attendance records for the authenticated employee across mobile and web."""
     emp_id = getattr(employee, "employee_id", None) or getattr(employee, "employeeId", None)
 
     if settings.DATABASE_BACKEND == "firebase":
-        records = FirestoreService.query("attendance", {"employee_id": emp_id})
+        emp_uid = str(getattr(employee, "uid", None) or getattr(employee, "id", None) or emp_id)
+        records_top = FirestoreService.query("attendance", {"employee_id": emp_id})
+        cg_records = FirestoreService.collection_group("records")
+
+        merged = {}
+        for r in records_top:
+            dt = str(r.get("date", "")).strip()
+            merged[dt] = r
+
+        for cr in cg_records:
+            c_eid = str(cr.get("employeeId") or cr.get("employee_id") or cr.get("uid") or "")
+            if c_eid in [str(emp_id), str(emp_uid)]:
+                dt = str(cr.get("date", "")).strip()
+                if dt not in merged:
+                    merged[dt] = {
+                        "id": f"{emp_id}_{dt}",
+                        "employee_id": emp_id,
+                        "employeeId": emp_id,
+                        "employee_uid": emp_uid,
+                        "date": dt,
+                        "check_in_time": _parse_time_str(cr.get("checkIn") or cr.get("check_in_time")),
+                        "check_out_time": _parse_time_str(cr.get("checkOut") or cr.get("check_out_time")),
+                        "work_mode": cr.get("workMode") or cr.get("work_mode") or "WFO",
+                        "status": cr.get("status", "Present"),
+                        "is_late": bool(cr.get("lateLogin") or cr.get("is_late")),
+                        "check_in_photo_url": cr.get("checkInPhotoUrl"),
+                        "checkInPhotoUrl": cr.get("checkInPhotoUrl"),
+                        "hasCheckInPhoto": bool(cr.get("checkInPhotoUrl") or cr.get("photoCaptured")),
+                        "duration": cr.get("duration") or "--",
+                    }
+
+        records = list(merged.values())
         filtered = []
         for r in records:
             if workMode and workMode != "All":
@@ -426,6 +564,57 @@ def get_today_attendance_status(
         records = FirestoreService.query("attendance", {"employee_id": emp_id, "date": today_iso})
         record = records[0] if records else None
 
+        emp_uid = str(getattr(employee, "uid", None) or getattr(employee, "id", None) or emp_id)
+        cg_today = FirestoreService.collection_group("records", [("date", "==", today_iso)])
+        mobile_rec = None
+        for cr in cg_today:
+            c_eid = str(cr.get("employeeId") or cr.get("employee_id") or cr.get("uid") or "")
+            if c_eid in [str(emp_id), str(emp_uid)]:
+                mobile_rec = cr
+                break
+
+        if not record and mobile_rec:
+            record = {
+                "id": f"{emp_id}_{today_iso}",
+                "employee_id": emp_id,
+                "date": today_iso,
+                "check_in_time": _parse_time_str(mobile_rec.get("checkIn") or mobile_rec.get("check_in_time")),
+                "check_out_time": _parse_time_str(mobile_rec.get("checkOut") or mobile_rec.get("check_out_time")),
+                "work_mode": mobile_rec.get("workMode") or mobile_rec.get("work_mode") or auth_mode,
+                "status": mobile_rec.get("status", "Present"),
+                "is_late": bool(mobile_rec.get("lateLogin") or mobile_rec.get("is_late")),
+                "hasCheckInPhoto": bool(mobile_rec.get("checkInPhotoUrl") or mobile_rec.get("photoCaptured")),
+                "check_in_photo_url": mobile_rec.get("checkInPhotoUrl"),
+                "duration": mobile_rec.get("duration") or "--",
+            }
+        elif record and mobile_rec:
+            mob_out = mobile_rec.get("checkOut") or mobile_rec.get("check_out_time")
+            if mob_out and (not record.get("check_out_time") or record.get("check_out_time") == "--"):
+                out_str = _parse_time_str(mob_out)
+                record["check_out_time"] = out_str
+                record["status"] = "Completed"
+                if mobile_rec.get("duration") and mobile_rec.get("duration") != "--":
+                    record["duration"] = mobile_rec["duration"]
+                FirestoreService.update("attendance", record.get("id") or f"{emp_id}_{today_iso}", {
+                    "check_out_time": out_str,
+                    "status": "Completed",
+                    "duration": record.get("duration", "--"),
+                    "is_completed": True,
+                })
+
+        if record:
+            sync_attendance_to_postgres(
+                emp_id=emp_id,
+                att_date=today,
+                check_in_time=record.get("check_in_time"),
+                check_out_time=record.get("check_out_time"),
+                duration=record.get("duration"),
+                work_mode=record.get("work_mode", "WFO"),
+                status_str=record.get("status", "Present"),
+                is_late=bool(record.get("is_late")),
+                db=db,
+            )
+
         if not record:
             return AttendanceTodayStatusResponse(
                 id=None,
@@ -454,6 +643,16 @@ def get_today_attendance_status(
         is_completed = bool(record.get("check_out_time"))
         is_checked_in = bool(record.get("check_in_time") and not is_completed)
         status_display = "Completed" if is_completed else record.get("status", "Present")
+        is_rec_late = bool(record.get("is_late") or record.get("isLate") or record.get("lateLogin"))
+        late_reason_val = record.get("late_reason") or record.get("lateReason")
+        late_status_val = record.get("late_reason_status") or record.get("lateReasonStatus")
+        if not late_status_val:
+            if late_reason_val:
+                late_status_val = "SUBMITTED"
+            elif is_rec_late:
+                late_status_val = "PENDING"
+            else:
+                late_status_val = "NOT_REQUIRED"
 
         return AttendanceTodayStatusResponse(
             id=record.get("id"),
@@ -467,7 +666,10 @@ def get_today_attendance_status(
             workingDuration=record.get("duration") or "--",
             status=status_display,
             date=today_iso,
-            isLate=bool(record.get("is_late")),
+            isLate=is_rec_late,
+            lateReason=late_reason_val or None,
+            lateReasonStatus=late_status_val,
+            lateReasonSubmittedAt=record.get("late_reason_submitted_at") or record.get("lateReasonSubmittedAt") or None,
             checkInTimestamp=record.get("check_in_timestamp"),
             checkOutTimestamp=record.get("check_out_timestamp"),
             checkInLatitude=record.get("check_in_latitude"),
@@ -504,6 +706,9 @@ def get_today_attendance_status(
             status="Not Checked In",
             date=today_iso,
             isLate=False,
+            lateReason=None,
+            lateReasonStatus="NOT_REQUIRED",
+            lateReasonSubmittedAt=None,
             checkInTimestamp=None,
             checkOutTimestamp=None,
             checkInLatitude=None,
@@ -518,6 +723,10 @@ def get_today_attendance_status(
     is_completed = bool(record.check_out_time)
     is_checked_in = bool(record.check_in_time and not is_completed)
     status_display = "Completed" if is_completed else record.status
+    is_rec_late = bool(record.is_late or (record.status and record.status.lower() == "late"))
+    late_reason_val = getattr(record, "late_reason", None)
+    late_status_val = "SUBMITTED" if late_reason_val else ("PENDING" if is_rec_late else "NOT_REQUIRED")
+    submitted_at_val = getattr(record, "late_reason_submitted_at", None)
 
     return AttendanceTodayStatusResponse(
         id=record.id,
@@ -531,7 +740,10 @@ def get_today_attendance_status(
         workingDuration=record.duration or "--",
         status=status_display,
         date=today_iso,
-        isLate=record.is_late,
+        isLate=is_rec_late,
+        lateReason=late_reason_val or None,
+        lateReasonStatus=late_status_val,
+        lateReasonSubmittedAt=submitted_at_val.isoformat() if submitted_at_val else None,
         checkInTimestamp=record.check_in_timestamp.isoformat() if record.check_in_timestamp else None,
         checkOutTimestamp=record.check_out_timestamp.isoformat() if record.check_out_timestamp else None,
         checkInLatitude=record.check_in_latitude,
@@ -773,6 +985,13 @@ async def check_in(
             "work_mode": work_mode,
             "status": att_status,
             "is_late": late,
+            "isLate": late,
+            "late_reason": None,
+            "lateReason": None,
+            "late_reason_status": "PENDING" if late else "NOT_REQUIRED",
+            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
+            "late_reason_submitted_at": None,
+            "lateReasonSubmittedAt": None,
             "duration": "In Progress",
             "check_in_latitude": lat,
             "check_in_longitude": lon,
@@ -808,6 +1027,29 @@ async def check_in(
         }
         FirestoreService.save("attendance_photos", f"PHOTO_{record_id}_check_in", photo_doc)
 
+        # Mirror check-in to attendance/{emp_uid}/records/{today_iso} for mobile synchronization
+        FirestoreService.save_subdocument(
+            collection="attendance",
+            doc_id=emp_uid,
+            subcollection="records",
+            subdoc_id=today_iso,
+            data={
+                "employeeId": emp_uid,
+                "email": user_email,
+                "date": today_iso,
+                "checkIn": now_utc.isoformat(),
+                "status": att_status,
+                "workMode": work_mode,
+                "lateLogin": late,
+                "isLate": late,
+                "lateReason": "",
+                "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
+                "lateReasonSubmittedAt": None,
+                "checkInPhotoUrl": photo_url,
+                "photoCaptured": bool(photo_url),
+            }
+        )
+
         FirestoreService.add_audit_log(
             actor_uid=emp_id,
             action="ATTENDANCE_CHECK_IN",
@@ -824,6 +1066,9 @@ async def check_in(
             "workMode": work_mode,
             "status": att_status,
             "isLate": late,
+            "lateReason": None,
+            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
+            "lateReasonSubmittedAt": None,
             "timestamp": now_utc.isoformat(),
             "hasCheckInPhoto": True,
             "photoUrl": photo_url,
@@ -849,6 +1094,8 @@ async def check_in(
             existing.work_mode = work_mode
             existing.status = att_status
             existing.is_late = late
+            existing.late_reason = None
+            existing.late_reason_submitted_at = None
             existing.duration = "In Progress"
             record = existing
         else:
@@ -866,6 +1113,8 @@ async def check_in(
                 work_mode=work_mode,
                 status=att_status,
                 is_late=late,
+                late_reason=None,
+                late_reason_submitted_at=None,
                 duration="In Progress",
             )
             db.add(record)
@@ -883,6 +1132,9 @@ async def check_in(
             "workMode": work_mode,
             "status": att_status,
             "isLate": late,
+            "lateReason": None,
+            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
+            "lateReasonSubmittedAt": None,
             "timestamp": now_utc.isoformat(),
             "hasCheckInPhoto": True,
             "checkInLatitude": lat,
@@ -910,39 +1162,81 @@ async def check_out(
     """
     Record daily attendance punch-out and lock attendance for the remainder of today.
     """
-    user_role = getattr(current_user, "role", "employee")
-    user_id = getattr(current_user, "id", None)
-    user_email = getattr(current_user, "email", "")
+    user_role = str(getattr(current_user, "role", "employee") or "employee").strip().lower()
+    user_id = getattr(current_user, "id", None) or getattr(current_user, "uid", None)
+    user_email = str(getattr(current_user, "email", "") or "").strip().lower()
+
+    # Read optional JSON body if present
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    body_emp_id = str(body.get("employeeId") or body.get("employee_id") or "").strip()
 
     emp_id = None
-    if settings.DATABASE_BACKEND == "firebase":
-        if user_role == "employee":
-            emps = FirestoreService.query("employees", {"email": user_email})
-            if not emps and user_id:
-                emps = FirestoreService.query("employees", {"user_id": user_id})
-            emp = emps[0] if emps else None
-            emp_id = emp.get("employee_id") if emp else None
-        elif user_role == "admin":
-            try:
-                body = await request.json()
-                emp_id = body.get("employeeId")
-            except Exception:
-                pass
+    if user_role == "admin":
+        emp_id = body_emp_id or None
+        if not emp_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Employee ID is required for administrative check-out.",
+            )
     else:
-        if user_role == "employee":
-            emp = db.query(Employee).filter(Employee.user_id == user_id).first()
-            if not emp:
+        # 1. Check if authenticated employee entity already carries an employee identifier
+        emp_id = getattr(current_user, "employee_id", None) or getattr(current_user, "employeeId", None)
+
+        # 2. Check if employee identifier was provided in request body
+        if not emp_id and body_emp_id:
+            emp_id = body_emp_id
+
+        # 3. Resolve from database
+        if settings.DATABASE_BACKEND == "firebase":
+            emp = None
+            if user_id:
+                emp = FirestoreService.get_by_id("employees", str(user_id))
+            if not emp and user_email:
+                matches = FirestoreService.query("employees", {"email": user_email})
+                if matches:
+                    emp = matches[0]
+            if not emp and user_id:
+                matches = FirestoreService.query("employees", {"uid": str(user_id)})
+                if matches:
+                    emp = matches[0]
+            if not emp and user_id:
+                matches = FirestoreService.query("employees", {"user_id": user_id})
+                if matches:
+                    emp = matches[0]
+                elif str(user_id).isdigit():
+                    matches = FirestoreService.query("employees", {"user_id": int(user_id)})
+                    if matches:
+                        emp = matches[0]
+
+            if emp:
+                emp_id = emp.get("employee_id") or emp.get("employeeId") or emp.get("id")
+
+            if not emp_id and user_id and (str(user_id).startswith("AFI") or str(user_id).startswith("EMP")):
+                emp_id = str(user_id)
+        else:
+            emp = None
+            if user_id:
+                emp = db.query(Employee).filter(Employee.user_id == user_id).first()
+            if not emp and user_email:
                 emp = db.query(Employee).filter(Employee.email == user_email).first()
-            emp_id = emp.employee_id if emp else None
-        elif user_role == "admin":
-            try:
-                body = await request.json()
-                emp_id = body.get("employeeId")
-            except Exception:
-                pass
+            if not emp and body_emp_id:
+                emp = db.query(Employee).filter(Employee.employee_id == body_emp_id).first()
+
+            if emp:
+                emp_id = emp.employee_id
+            elif body_emp_id:
+                emp_id = body_emp_id
 
     if not emp_id:
-        raise HTTPException(status_code=400, detail="Employee ID could not be determined.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employee ID could not be determined.",
+        )
 
     today = get_attendance_today()
     today_iso = today.isoformat()
@@ -952,29 +1246,91 @@ async def check_out(
 
     if settings.DATABASE_BACKEND == "firebase":
         records = FirestoreService.query("attendance", {"employee_id": emp_id, "date": today_iso})
+        if not records:
+            records = FirestoreService.query("attendance", {"employeeId": emp_id, "date": today_iso})
         record = records[0] if records else None
-        if not record or not record.get("check_in_time"):
-            raise HTTPException(status_code=400, detail="Cannot check out without an active check-in for today.")
-        if record.get("check_out_time"):
-            raise HTTPException(status_code=409, detail="Attendance already locked and checked out for today.")
 
-        duration_str = "Completed"
-        in_ts_str = record.get("check_in_timestamp")
-        if in_ts_str:
+        if not record:
+            record = FirestoreService.get_by_id("attendance", f"{emp_id}_{today_iso}")
+
+        if not record:
+            emp_uid_lookup = str(getattr(current_user, "uid", None) or getattr(current_user, "id", None) or emp_id)
+            cg_today = FirestoreService.collection_group("records", [("date", "==", today_iso)])
+            for cr in cg_today:
+                c_eid = str(cr.get("employeeId") or cr.get("employee_id") or cr.get("uid") or "")
+                if c_eid in [str(emp_id), str(emp_uid_lookup)]:
+                    record = cr
+                    break
+
+        chk_in = (record.get("check_in_time") or record.get("checkIn") or "") if record else ""
+        chk_out = (record.get("check_out_time") or record.get("checkOut") or "") if record else ""
+
+        if not record or not chk_in or chk_in == "--":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot check out without an active check-in for today.",
+            )
+        if chk_out and chk_out != "--":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Attendance already completed and locked for today.",
+            )
+
+        # Calculate working duration using server-authoritative timestamps
+        dur_secs = 0
+        in_ts = record.get("check_in_timestamp") or record.get("checkInTimestamp") or record.get("checkIn")
+        in_dt = None
+        if isinstance(in_ts, datetime):
+            in_dt = in_ts
+        elif isinstance(in_ts, str) and in_ts:
             try:
-                in_dt = datetime.fromisoformat(in_ts_str)
-                dur_secs = int((now_utc - in_dt).total_seconds())
-                duration_str = format_duration_str(dur_secs)
+                in_dt = datetime.fromisoformat(in_ts.replace("Z", "+00:00"))
+            except Exception:
+                in_dt = None
+
+        if in_dt:
+            if in_dt.tzinfo is None:
+                in_dt = in_dt.replace(tzinfo=timezone.utc)
+            dur_secs = int((now_utc - in_dt).total_seconds())
+
+        if dur_secs <= 0 and chk_in and chk_in != "--":
+            try:
+                parsed_time = datetime.strptime(str(chk_in).strip().upper(), "%I:%M %p").time()
+                in_local = datetime.combine(today, parsed_time)
+                dur_secs = int((now_local.replace(tzinfo=None) - in_local).total_seconds())
             except Exception:
                 pass
 
-        doc_id = record.get("id") or f"{emp_id}_{today_iso}"
-        FirestoreService.update("attendance", doc_id, {
+        dur_secs = max(0, dur_secs)
+        duration_str = format_duration_str(dur_secs)
+
+        doc_id = record.get("id") or record.get("_firestore_id") or f"{emp_id}_{today_iso}"
+        update_data = {
             "check_out_time": out_time_str,
             "check_out_timestamp": now_utc.isoformat(),
             "duration": duration_str,
             "status": "Completed",
-        })
+            "is_completed": True,
+            "canCheckIn": False,
+            "canCheckOut": False,
+        }
+        FirestoreService.update("attendance", doc_id, update_data)
+        FirestoreService.update("attendances", doc_id, update_data)
+
+        # Mirror checkout to mobile subcollection
+        emp_uid = str(record.get("employee_uid") or record.get("employeeUid") or user_id or emp_id)
+        FirestoreService.update_subdocument(
+            collection="attendance",
+            doc_id=emp_uid,
+            subcollection="records",
+            subdoc_id=today_iso,
+            updates={
+                "checkOut": now_utc.isoformat(),
+                "checkOutTime": out_time_str,
+                "duration": duration_str,
+                "status": "Completed",
+            },
+        )
 
         FirestoreService.add_audit_log(
             actor_uid=emp_id,
@@ -990,23 +1346,58 @@ async def check_out(
             "checkOut": out_time_str,
             "checkOutTime": out_time_str,
             "duration": duration_str,
+            "workingDuration": duration_str,
             "status": "Completed",
+            "isCompleted": True,
+            "isCheckedIn": False,
             "canCheckIn": False,
             "canCheckOut": False,
-            "attendance": record,
+            "attendance": {
+                "id": doc_id,
+                "employeeId": emp_id,
+                "employee_id": emp_id,
+                "date": today_iso,
+                "checkIn": chk_in,
+                "checkInTime": chk_in,
+                "checkOut": out_time_str,
+                "checkOutTime": out_time_str,
+                "duration": duration_str,
+                "workingDuration": duration_str,
+                "status": "Completed",
+                "workMode": record.get("work_mode") or record.get("workMode") or "WFO",
+            },
         }
 
     # PostgreSQL fallback
     record = db.query(Attendance).filter(Attendance.employee_id == emp_id, Attendance.date == today).first()
-    if not record or not record.check_in_time:
-        raise HTTPException(status_code=400, detail="Cannot check out without an active check-in for today.")
-    if record.check_out_time:
-        raise HTTPException(status_code=409, detail="Attendance already locked and checked out for today.")
+    if not record or not record.check_in_time or record.check_in_time == "--":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot check out without an active check-in for today.",
+        )
+    if record.check_out_time and record.check_out_time != "--":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Attendance already completed and locked for today.",
+        )
 
-    duration_str = "Completed"
+    dur_secs = 0
     if record.check_in_timestamp:
-        dur_secs = int((now_utc - record.check_in_timestamp).total_seconds())
-        duration_str = format_duration_str(dur_secs)
+        in_dt = record.check_in_timestamp
+        if in_dt.tzinfo is None:
+            in_dt = in_dt.replace(tzinfo=timezone.utc)
+        dur_secs = int((now_utc - in_dt).total_seconds())
+
+    if dur_secs <= 0 and record.check_in_time and record.check_in_time != "--":
+        try:
+            parsed_time = datetime.strptime(record.check_in_time.strip().upper(), "%I:%M %p").time()
+            in_local = datetime.combine(today, parsed_time)
+            dur_secs = int((now_local.replace(tzinfo=None) - in_local).total_seconds())
+        except Exception:
+            pass
+
+    dur_secs = max(0, dur_secs)
+    duration_str = format_duration_str(dur_secs)
 
     record.check_out_time = out_time_str
     record.check_out_timestamp = now_utc
@@ -1022,9 +1413,26 @@ async def check_out(
         "checkOut": out_time_str,
         "checkOutTime": out_time_str,
         "duration": duration_str,
+        "workingDuration": duration_str,
         "status": "Completed",
+        "isCompleted": True,
+        "isCheckedIn": False,
         "canCheckIn": False,
         "canCheckOut": False,
+        "attendance": {
+            "id": record.id,
+            "employeeId": emp_id,
+            "employee_id": emp_id,
+            "date": today_iso,
+            "checkIn": record.check_in_time,
+            "checkInTime": record.check_in_time,
+            "checkOut": out_time_str,
+            "checkOutTime": out_time_str,
+            "duration": duration_str,
+            "workingDuration": duration_str,
+            "status": "Completed",
+            "workMode": record.work_mode or "WFO",
+        },
     }
 
 
@@ -1123,6 +1531,192 @@ def get_attendance_photo(
     raise HTTPException(status_code=404, detail="No photo recorded for this attendance entry.")
 
 
+@router.post("/late-reason", status_code=status.HTTP_200_OK)
+@router.post("/{attendance_id}/late-reason", status_code=status.HTTP_200_OK)
+def submit_late_reason(
+    payload: LateReasonSubmissionRequest,
+    attendance_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Submit mandatory reason for late check-in.
+    Validates authenticated user, late status, rejects empty/whitespace input,
+    and prevents duplicate or unauthorized submissions.
+    """
+    clean_reason = (payload.reason or "").strip()
+    if not clean_reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Late arrival reason cannot be empty or whitespace.",
+        )
+
+    user_role = getattr(current_user, "role", "employee")
+    user_id = getattr(current_user, "id", None)
+    user_email = getattr(current_user, "email", "")
+
+    # 1. Resolve employee identity from session
+    emp_id = None
+    emp_uid = None
+    if settings.DATABASE_BACKEND == "firebase":
+        if user_role == "employee":
+            emps = FirestoreService.query("employees", {"email": user_email})
+            if not emps and user_id:
+                emps = FirestoreService.query("employees", {"user_id": user_id})
+            if not emps and user_id:
+                doc = FirestoreService.get_by_id("employees", str(user_id))
+                if doc:
+                    emps = [doc]
+            if not emps:
+                raise HTTPException(status_code=404, detail="Employee profile not found.")
+            emp = emps[0]
+            emp_id = emp.get("employee_id") or emp.get("employeeId")
+            emp_uid = str(emp.get("uid") or emp.get("id") or user_id or emp_id)
+        elif user_role == "admin":
+            emp_id = None
+            emp_uid = None
+        else:
+            raise HTTPException(status_code=403, detail="Employee access required.")
+    else:
+        if user_role == "employee":
+            emp = db.query(Employee).filter(Employee.user_id == user_id).first()
+            if not emp:
+                emp = db.query(Employee).filter(Employee.email == user_email).first()
+            if not emp:
+                raise HTTPException(status_code=404, detail="Employee profile not found.")
+            emp_id = emp.employee_id
+            emp_uid = str(emp.user_id or emp_id)
+        elif user_role == "admin":
+            emp_id = None
+            emp_uid = None
+        else:
+            raise HTTPException(status_code=403, detail="Employee access required.")
+
+    target_id = attendance_id or payload.attendanceId
+    today_iso = get_attendance_today().isoformat()
+    now_utc = datetime.now(timezone.utc)
+
+    # 2. Resolve target attendance record
+    if settings.DATABASE_BACKEND == "firebase":
+        rec = None
+        if target_id:
+            rec = FirestoreService.get_by_id("attendance", str(target_id))
+            if not rec:
+                all_att = FirestoreService.list_all("attendance")
+                for a in all_att:
+                    if str(a.get("id")) == str(target_id):
+                        rec = a
+                        break
+
+        if not rec and emp_id:
+            recs = FirestoreService.query("attendance", {"employee_id": emp_id, "date": today_iso})
+            if not recs:
+                recs = FirestoreService.query("attendance", {"employeeId": emp_id, "date": today_iso})
+            if not recs and emp_uid:
+                recs = FirestoreService.query("attendance", {"employee_uid": emp_uid, "date": today_iso})
+            rec = recs[0] if recs else None
+
+        if not rec:
+            raise HTTPException(status_code=404, detail="No attendance record found for this check-in.")
+
+        rec_emp_id = str(rec.get("employee_id") or rec.get("employeeId") or "")
+        rec_emp_uid = str(rec.get("employee_uid") or rec.get("employeeUid") or "")
+        if user_role == "employee":
+            if emp_id and rec_emp_id != str(emp_id) and rec_emp_uid != str(emp_uid):
+                raise HTTPException(status_code=403, detail="You can only submit a late reason for your own attendance record.")
+
+        is_rec_late = bool(rec.get("is_late") or rec.get("isLate") or rec.get("status") == "Late" or rec.get("lateLogin"))
+        if not is_rec_late:
+            raise HTTPException(status_code=400, detail="Late reason is not required for an on-time check-in.")
+
+        existing_reason = rec.get("late_reason") or rec.get("lateReason")
+        if existing_reason and str(existing_reason).strip():
+            raise HTTPException(status_code=409, detail="Late reason has already been submitted for this attendance record.")
+
+        rec_key = str(rec.get("id") or target_id or f"{emp_id}_{today_iso}")
+        updates = {
+            "late_reason": clean_reason,
+            "lateReason": clean_reason,
+            "late_reason_status": "SUBMITTED",
+            "lateReasonStatus": "SUBMITTED",
+            "late_reason_submitted_at": now_utc.isoformat(),
+            "lateReasonSubmittedAt": now_utc.isoformat(),
+            "updated_at": now_utc.isoformat(),
+        }
+        FirestoreService.update("attendance", rec_key, updates)
+        rec.update(updates)
+
+        if emp_uid:
+            try:
+                rec_date = str(rec.get("date") or today_iso).strip()
+                FirestoreService.update_subdocument(
+                    "attendance",
+                    emp_uid,
+                    "records",
+                    rec_date,
+                    {
+                        "lateReason": clean_reason,
+                        "lateReasonStatus": "SUBMITTED",
+                        "lateReasonSubmittedAt": now_utc.isoformat(),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Could not mirror lateReason to subdoc: {e}")
+
+        FirestoreService.add_audit_log(
+            actor_uid=emp_id or str(user_id),
+            action="ATTENDANCE_LATE_REASON_SUBMITTED",
+            target_record=rec_key,
+            metadata={"late_reason": clean_reason},
+        )
+
+        return {
+            "success": True,
+            "message": "Late arrival reason recorded successfully.",
+            "attendanceId": rec_key,
+            "lateReason": clean_reason,
+            "lateReasonStatus": "SUBMITTED",
+            "lateReasonSubmittedAt": now_utc.isoformat(),
+        }
+
+    # PostgreSQL fallback
+    record = None
+    if target_id and str(target_id).isdigit():
+        record = db.query(Attendance).filter(Attendance.id == int(target_id)).first()
+
+    if not record and emp_id:
+        record = db.query(Attendance).filter(
+            Attendance.employee_id == emp_id,
+            Attendance.date == get_attendance_today(),
+        ).first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="No attendance record found for this check-in.")
+
+    if user_role == "employee" and record.employee_id != emp_id:
+        raise HTTPException(status_code=403, detail="You can only submit a late reason for your own attendance record.")
+
+    if not (record.is_late or (record.status and record.status.lower() == "late")):
+        raise HTTPException(status_code=400, detail="Late reason is not required for an on-time check-in.")
+
+    if record.late_reason and record.late_reason.strip():
+        raise HTTPException(status_code=409, detail="Late reason has already been submitted for this attendance record.")
+
+    record.late_reason = clean_reason
+    record.late_reason_submitted_at = now_utc
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "success": True,
+        "message": "Late arrival reason recorded successfully.",
+        "attendanceId": str(record.id),
+        "lateReason": clean_reason,
+        "lateReasonStatus": "SUBMITTED",
+        "lateReasonSubmittedAt": now_utc.isoformat(),
+    }
+
+
 @router.patch("/{record_id}", response_model=dict)
 def update_attendance_record(
     record_id: str,
@@ -1152,6 +1746,11 @@ def update_attendance_record(
             updates["check_in_time"] = data.checkIn
         if data.checkOut:
             updates["check_out_time"] = data.checkOut
+        if data.lateReason is not None:
+            updates["late_reason"] = data.lateReason
+            updates["lateReason"] = data.lateReason
+            updates["late_reason_status"] = "SUBMITTED" if data.lateReason else "PENDING"
+            updates["lateReasonStatus"] = "SUBMITTED" if data.lateReason else "PENDING"
 
         doc_key = rec.get("id") or record_id
         FirestoreService.update("attendance", doc_key, updates)
@@ -1176,6 +1775,8 @@ def update_attendance_record(
         record.check_in_time = data.checkIn
     if data.checkOut:
         record.check_out_time = data.checkOut
+    if data.lateReason is not None:
+        record.late_reason = data.lateReason
 
     db.commit()
     db.refresh(record)

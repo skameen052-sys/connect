@@ -150,9 +150,21 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
           });
         } catch (err) {
           setIsGettingLocation(false);
-          if (err.code === 'OUTSIDE_OFFICE_GEOFENCE' || dist > allowedRadius) {
+          if (err.status === 401) {
+            setLocationErrorCode('UNAUTHORIZED');
+            setLocationErrorTitle('Session Expired');
+            setLocationError('Your session has expired or could not be validated. Please log in again.');
+          } else if (err.status === 403) {
+            setLocationErrorCode('FORBIDDEN');
+            setLocationErrorTitle('Access Restricted');
+            setLocationError(err.message || 'Your employee account is not authorized to punch attendance.');
+          } else if (err.status === 404) {
+            setLocationErrorCode('NOT_FOUND');
+            setLocationErrorTitle('Employee Record Not Found');
+            setLocationError('Your employee account could not be found. Please contact the administrator.');
+          } else if (err.code === 'OUTSIDE_OFFICE_GEOFENCE' || dist > allowedRadius) {
             setLocationErrorCode('OUTSIDE_OFFICE_GEOFENCE');
-            setLocationErrorTitle('Location Verification Failed');
+            setLocationErrorTitle('Outside Office Geofence');
             setLocationError(
               err.message || 'You are outside the permitted attendance area.'
             );
@@ -164,7 +176,7 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
             );
           } else {
             setLocationErrorCode(err.code || 'VALIDATION_ERROR');
-            setLocationErrorTitle('Location Verification Failed');
+            setLocationErrorTitle('Verification Error');
             setLocationError(err.message || 'Location verification failed.');
           }
           return;

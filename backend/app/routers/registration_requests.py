@@ -12,6 +12,7 @@ from app.models.employee import Employee
 from app.schemas.registration_request import RegistrationRequestUpdate, RegistrationRequestResponse
 from app.dependencies.auth import get_current_admin
 from app.services.firestore_service import FirestoreService
+from app.services.sync_service import sync_employee_approval_state
 
 router = APIRouter()
 
@@ -56,12 +57,83 @@ def list_registration_requests(
     db: Session = Depends(get_db),
     admin_user=Depends(get_current_admin),
 ):
-    """List staff signup onboarding requests (Admin only)."""
+    """List staff signup onboarding requests across both mobile and web (Admin only)."""
     if settings.DATABASE_BACKEND == "firebase":
+        raw_employees = FirestoreService.list_all("employees")
         raw_requests = FirestoreService.list_all("registration_requests")
-        filtered = []
+
+        merged = {}
+
+        # 1. Process employees collection (authoritative source for mobile signups)
+        for emp in raw_employees:
+            st = str(emp.get("status", "")).strip()
+            emp_code = emp.get("employeeId") or emp.get("employee_id") or emp.get("uid") or emp.get("id") or ""
+            email = str(emp.get("email", "")).strip().lower()
+            name = emp.get("name") or emp.get("fullName") or emp.get("full_name") or "Employee"
+            phone = emp.get("phone") or "--"
+            req_date = emp.get("createdAt") or emp.get("created_at") or datetime.now(timezone.utc).date().isoformat()
+            if isinstance(req_date, datetime):
+                req_date = req_date.date().isoformat()
+            elif isinstance(req_date, str) and "T" in req_date:
+                req_date = req_date.split("T")[0]
+
+            key = email if email else (str(emp_code).strip().upper() if emp_code else str(doc_id))
+
+            # Map status into display status
+            if st.lower() in ("approved", "active"):
+                ui_status = "Approved"
+            elif st.lower() == "rejected":
+                ui_status = "Rejected"
+            elif st.lower() == "pending":
+                ui_status = "Pending"
+            else:
+                ui_status = st.capitalize() if st else "Pending"
+
+            doc_id = emp.get("_firestore_id") or emp.get("uid") or emp.get("id") or emp_code
+
+            reviewed_at = emp.get("reviewedAt") or emp.get("reviewed_at") or emp.get("approvedAt") or emp.get("approved_at")
+            if isinstance(reviewed_at, datetime):
+                reviewed_at = reviewed_at.isoformat()
+
+            merged[key] = {
+                "id": str(doc_id),
+                "requestId": str(doc_id),
+                "name": name,
+                "fullName": name,
+                "employeeId": str(emp.get("employeeId") or emp.get("employee_id") or emp_code),
+                "email": email,
+                "phone": phone,
+                "status": ui_status,
+                "raw_status": st,
+                "requestedDate": str(req_date),
+                "rejectionReason": emp.get("rejectionReason") or emp.get("rejection_reason"),
+                "reviewedBy": emp.get("reviewedBy") or emp.get("reviewed_by") or emp.get("approvedBy") or emp.get("approved_by"),
+                "reviewedAt": reviewed_at,
+                "_source": "employees",
+                "_firestore_id": emp.get("_firestore_id") or str(doc_id),
+                "uid": emp.get("uid") or emp.get("_firestore_id"),
+            }
+
+        # 2. Merge registration_requests collection
         for r in raw_requests:
-            st = str(r.get("status", "Pending")).upper()
+            emp_code = str(r.get("employee_id") or r.get("employeeId") or "").strip().upper()
+            email = str(r.get("email", "")).strip().lower()
+            key = email if email else (emp_code if emp_code else str(r.get("id", "")))
+
+            if key in merged:
+                if not merged[key].get("rejectionReason") and (r.get("rejection_reason") or r.get("rejectionReason")):
+                    merged[key]["rejectionReason"] = r.get("rejection_reason") or r.get("rejectionReason")
+                if not merged[key].get("reviewedBy") and (r.get("reviewed_by") or r.get("reviewedBy")):
+                    merged[key]["reviewedBy"] = r.get("reviewed_by") or r.get("reviewedBy")
+                if not merged[key].get("reviewedAt") and (r.get("reviewed_at") or r.get("reviewedAt")):
+                    merged[key]["reviewedAt"] = r.get("reviewed_at") or r.get("reviewedAt")
+            else:
+                formatted = format_request_response(r)
+                merged[key] = formatted
+
+        filtered = []
+        for item in merged.values():
+            st = str(item.get("status", "Pending")).upper()
             if status_filter:
                 sf = status_filter.upper()
                 if sf == "PENDING" and st != "PENDING":
@@ -72,7 +144,7 @@ def list_registration_requests(
                     continue
                 elif sf == "PROCESSED" and st == "PENDING":
                     continue
-            filtered.append(format_request_response(r))
+            filtered.append(item)
 
         filtered.sort(key=lambda x: str(x.get("requestedDate", "")), reverse=True)
         return filtered
@@ -116,71 +188,73 @@ def approve_registration_request(
     db: Session = Depends(get_db),
     admin_user=Depends(get_current_admin),
 ):
-    """Admin approves pending employee registration request."""
+    """Admin approves pending employee registration request across mobile and web."""
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_email = getattr(admin_user, "email", "admin@arshith.com")
     admin_id = getattr(admin_user, "id", 1)
 
     if settings.DATABASE_BACKEND == "firebase":
-        req = FirestoreService.get_by_id("registration_requests", request_id)
-        if not req:
-            all_r = FirestoreService.list_all("registration_requests")
-            for r in all_r:
-                if (
-                    str(r.get("request_code")) == request_id
-                    or str(r.get("employee_id")) == request_id
-                    or str(r.get("id")) == request_id
-                ):
-                    req = r
-                    break
+        target_emp = FirestoreService.get_by_id("employees", request_id)
+        target_req = FirestoreService.get_by_id("registration_requests", request_id)
 
-        if not req:
-            raise HTTPException(status_code=404, detail="Registration request not found")
+        if not target_emp and target_req:
+            clean_email = str(target_req.get("email", "")).lower().strip()
+            emps = FirestoreService.query("employees", {"email": clean_email})
+            if emps:
+                target_emp = emps[0]
+            elif target_req.get("employee_id"):
+                emps = FirestoreService.query("employees", {"employee_id": target_req["employee_id"]})
+                if emps:
+                    target_emp = emps[0]
 
-        if req.get("status") == "Approved":
-            raise HTTPException(status_code=400, detail="This registration request has already been approved")
+        if not target_emp and not target_req:
+            raise HTTPException(status_code=404, detail=f"Registration request '{request_id}' not found")
 
-        doc_key = req.get("request_code") or str(req.get("id"))
-        FirestoreService.update("registration_requests", doc_key, {
-            "status": "Approved",
-            "reviewed_by": admin_email,
-            "reviewed_at": now_iso,
-            "rejection_reason": None,
-        })
-        req["status"] = "Approved"
-        req["reviewed_by"] = admin_email
-        req["reviewed_at"] = now_iso
-        req["rejection_reason"] = None
+        # 1. Update Employee document in Firestore
+        emp_doc_id = None
+        clean_email = ""
+        emp_code = ""
+        emp_name = "Employee"
+        phone = "--"
 
-        # Activate linked User in Firestore
-        clean_email = str(req.get("email", "")).lower().strip()
-        users = FirestoreService.query("users", {"email": clean_email})
-        for u in users:
-            uid = u.get("id") or u.get("_firestore_id")
-            FirestoreService.update("users", uid, {
-                "approval_status": "APPROVED",
-                "is_active": True,
-                "reviewed_by_id": admin_id,
-                "reviewed_at": now_iso,
-                "rejection_reason": None,
-            })
+        if target_emp:
+            emp_doc_id = target_emp.get("_firestore_id") or target_emp.get("uid") or target_emp.get("id") or target_emp.get("employee_id")
+            clean_email = str(target_emp.get("email", "")).lower().strip()
+            emp_code = str(target_emp.get("employeeId") or target_emp.get("employee_id") or "")
+            emp_name = target_emp.get("name") or target_emp.get("fullName") or target_emp.get("full_name") or "Employee"
+            phone = target_emp.get("phone") or "--"
+        elif target_req:
+            clean_email = str(target_req.get("email", "")).lower().strip()
+            emp_code = str(target_req.get("employee_id") or target_req.get("employeeId") or "")
+            emp_name = target_req.get("full_name") or target_req.get("fullName") or "Employee"
+            phone = target_req.get("phone") or "--"
 
-        # Activate linked Employee in Firestore
-        emps = FirestoreService.query("employees", {"email": clean_email})
-        if not emps and req.get("employee_id"):
-            emps = FirestoreService.query("employees", {"employee_id": req.get("employee_id")})
-        for e in emps:
-            eid = e.get("employee_id") or e.get("id")
-            FirestoreService.update("employees", eid, {"status": "Active"})
+        req_doc_id = (target_req.get("request_code") if target_req else None) or (target_emp.get("request_code") if target_emp else None) or f"REQ-{emp_code}"
+
+        # Synchronize approval across all Firestore documents and PostgreSQL
+        sync_employee_approval_state(clean_email, "approved", admin_email, db=db)
 
         FirestoreService.add_audit_log(
             actor_uid=admin_email,
             action="EMPLOYEE_REGISTRATION_APPROVED",
-            target_record=req.get("employee_id", request_id),
-            metadata={"request_code": doc_key, "email": clean_email},
+            target_record=emp_code or request_id,
+            metadata={"request_id": request_id, "email": clean_email, "approved_status": "approved"},
         )
 
-        return format_request_response(req)
+        return format_request_response({
+            "id": request_id,
+            "requestId": request_id,
+            "request_code": req_doc_id,
+            "full_name": emp_name,
+            "name": emp_name,
+            "employee_id": emp_code,
+            "email": clean_email,
+            "phone": phone,
+            "status": "Approved",
+            "requested_date": str(target_emp.get("createdAt") if target_emp else now_iso).split("T")[0],
+            "reviewed_by": admin_email,
+            "reviewed_at": now_iso,
+        })
 
     # PostgreSQL fallback
     req = (
@@ -244,69 +318,74 @@ def reject_registration_request(
     admin_user=Depends(get_current_admin),
 ):
     """Admin rejects pending employee registration request."""
-    reason = (data.reason if data and data.reason else None) or "Registration rejected by administration."
+    reason = (data.get_reason() if data else None) or "Registration rejected by administration."
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_email = getattr(admin_user, "email", "admin@arshith.com")
     admin_id = getattr(admin_user, "id", 1)
 
     if settings.DATABASE_BACKEND == "firebase":
-        req = FirestoreService.get_by_id("registration_requests", request_id)
-        if not req:
-            all_r = FirestoreService.list_all("registration_requests")
-            for r in all_r:
-                if (
-                    str(r.get("request_code")) == request_id
-                    or str(r.get("employee_id")) == request_id
-                    or str(r.get("id")) == request_id
-                ):
-                    req = r
-                    break
+        target_emp = FirestoreService.get_by_id("employees", request_id)
+        target_req = FirestoreService.get_by_id("registration_requests", request_id)
 
-        if not req:
-            raise HTTPException(status_code=404, detail="Registration request not found")
+        if not target_emp and target_req:
+            clean_email = str(target_req.get("email", "")).lower().strip()
+            emps = FirestoreService.query("employees", {"email": clean_email})
+            if emps:
+                target_emp = emps[0]
+            elif target_req.get("employee_id"):
+                emps = FirestoreService.query("employees", {"employee_id": target_req["employee_id"]})
+                if emps:
+                    target_emp = emps[0]
 
-        if req.get("status") == "Rejected":
-            raise HTTPException(status_code=400, detail="This registration request has already been rejected")
+        if not target_emp and not target_req:
+            raise HTTPException(status_code=404, detail=f"Registration request '{request_id}' not found")
 
-        doc_key = req.get("request_code") or str(req.get("id"))
-        FirestoreService.update("registration_requests", doc_key, {
-            "status": "Rejected",
-            "reviewed_by": admin_email,
-            "reviewed_at": now_iso,
-            "rejection_reason": reason,
-        })
-        req["status"] = "Rejected"
-        req["reviewed_by"] = admin_email
-        req["reviewed_at"] = now_iso
-        req["rejection_reason"] = reason
+        # 1. Update Employee document in Firestore to lowercase "rejected"
+        emp_doc_id = None
+        clean_email = ""
+        emp_code = ""
+        emp_name = "Employee"
+        phone = "--"
 
-        clean_email = str(req.get("email", "")).lower().strip()
-        users = FirestoreService.query("users", {"email": clean_email})
-        for u in users:
-            uid = u.get("id") or u.get("_firestore_id")
-            FirestoreService.update("users", uid, {
-                "approval_status": "REJECTED",
-                "is_active": False,
-                "reviewed_by_id": admin_id,
-                "reviewed_at": now_iso,
-                "rejection_reason": reason,
-            })
+        if target_emp:
+            emp_doc_id = target_emp.get("_firestore_id") or target_emp.get("uid") or target_emp.get("id") or target_emp.get("employee_id")
+            clean_email = str(target_emp.get("email", "")).lower().strip()
+            emp_code = str(target_emp.get("employeeId") or target_emp.get("employee_id") or "")
+            emp_name = target_emp.get("name") or target_emp.get("fullName") or target_emp.get("full_name") or "Employee"
+            phone = target_emp.get("phone") or "--"
+        elif target_req:
+            clean_email = str(target_req.get("email", "")).lower().strip()
+            emp_code = str(target_req.get("employee_id") or target_req.get("employeeId") or "")
+            emp_name = target_req.get("full_name") or target_req.get("fullName") or "Employee"
+            phone = target_req.get("phone") or "--"
 
-        emps = FirestoreService.query("employees", {"email": clean_email})
-        if not emps and req.get("employee_id"):
-            emps = FirestoreService.query("employees", {"employee_id": req.get("employee_id")})
-        for e in emps:
-            eid = e.get("employee_id") or e.get("id")
-            FirestoreService.update("employees", eid, {"status": "Inactive"})
+        req_doc_id = (target_req.get("request_code") if target_req else None) or (target_emp.get("request_code") if target_emp else None) or f"REQ-{emp_code}"
+
+        # Synchronize rejection across all Firestore documents and PostgreSQL
+        sync_employee_approval_state(clean_email, "rejected", admin_email, rejection_reason=reason, db=db)
 
         FirestoreService.add_audit_log(
             actor_uid=admin_email,
             action="EMPLOYEE_REGISTRATION_REJECTED",
-            target_record=req.get("employee_id", request_id),
-            metadata={"request_code": doc_key, "email": clean_email, "reason": reason},
+            target_record=emp_code or request_id,
+            metadata={"request_id": request_id, "reason": reason, "status": "rejected"},
         )
 
-        return format_request_response(req)
+        return format_request_response({
+            "id": request_id,
+            "requestId": request_id,
+            "request_code": req_doc_id,
+            "full_name": emp_name,
+            "name": emp_name,
+            "employee_id": emp_code,
+            "email": clean_email,
+            "phone": phone,
+            "status": "Rejected",
+            "requested_date": str(target_emp.get("createdAt") if target_emp else now_iso).split("T")[0],
+            "reviewed_by": admin_email,
+            "reviewed_at": now_iso,
+            "rejection_reason": reason,
+        })
 
     # PostgreSQL fallback
     req = (

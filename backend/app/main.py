@@ -84,11 +84,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.core.exceptions import DuplicateFieldsException
+from app.core.exceptions import DuplicateFieldsException, RegistrationValidationException
 
 # Duplicate Fields Exception Handler
 @app.exception_handler(DuplicateFieldsException)
 async def duplicate_fields_exception_handler(request: Request, exc: DuplicateFieldsException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "errors": exc.errors,
+        },
+    )
+
+# Registration Validation Exception Handler
+@app.exception_handler(RegistrationValidationException)
+async def registration_validation_exception_handler(request: Request, exc: RegistrationValidationException):
     return JSONResponse(
         status_code=exc.status_code,
         content={

@@ -19,6 +19,7 @@ export default function AdminAttendance() {
   const [editWorkMode, setEditWorkMode] = useState('');
   const [editCheckIn, setEditCheckIn] = useState('');
   const [editCheckOut, setEditCheckOut] = useState('');
+  const [editLateReason, setEditLateReason] = useState('');
 
   // View verification details state
   const [viewRecord, setViewRecord] = useState(null);
@@ -47,7 +48,11 @@ export default function AdminAttendance() {
     const matchesSearch =
       (rec.employeeName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (rec.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' || (rec.status || '').toUpperCase() === statusFilter;
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'LATE'
+        ? (rec.status || '').toUpperCase() === 'LATE' || Boolean(rec.isLate)
+        : (rec.status || '').toUpperCase() === statusFilter);
     const matchesMode = modeFilter === 'ALL' || (rec.workMode || '').toUpperCase() === modeFilter;
     return matchesSearch && matchesStatus && matchesMode;
   });
@@ -58,6 +63,7 @@ export default function AdminAttendance() {
     setEditWorkMode(rec.workMode);
     setEditCheckIn(rec.checkIn);
     setEditCheckOut(rec.checkOut);
+    setEditLateReason(rec.lateReason || '');
     setIsEditModalOpen(true);
   };
 
@@ -87,6 +93,7 @@ export default function AdminAttendance() {
         workMode: editWorkMode,
         checkIn: editCheckIn,
         checkOut: editCheckOut,
+        lateReason: editLateReason,
       });
       await loadAttendanceRecords();
       setIsEditModalOpen(false);
@@ -197,9 +204,50 @@ export default function AdminAttendance() {
                       <td style={{ fontWeight: '600' }}>{rec.checkIn}</td>
                       <td style={{ color: '#64748b' }}>{rec.checkOut}</td>
                       <td>
-                        <span className={`badge-status ${statusBadgeClass}`}>
-                          {rec.status}
-                        </span>
+                        {rec.isLate || (rec.status || '').toUpperCase() === 'LATE' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                            <span className="badge-status badge-late">
+                              Late
+                            </span>
+                            {rec.lateReason ? (
+                              <span
+                                style={{
+                                  fontSize: '0.68rem',
+                                  color: '#166534',
+                                  backgroundColor: '#f0fdf4',
+                                  border: '1px solid #bbf7d0',
+                                  borderRadius: '4px',
+                                  padding: '1px 5px',
+                                  maxWidth: '130px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={`Reason: ${rec.lateReason}`}
+                              >
+                                {rec.lateReason}
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  fontSize: '0.68rem',
+                                  color: '#b91c1c',
+                                  backgroundColor: '#fef2f2',
+                                  border: '1px solid #fecaca',
+                                  borderRadius: '4px',
+                                  padding: '1px 5px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Reason Pending
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className={`badge-status ${statusBadgeClass}`}>
+                            {rec.status}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -290,6 +338,17 @@ export default function AdminAttendance() {
               />
             </div>
 
+            <div className="form-group">
+              <label className="form-label">Late Arrival Reason</label>
+              <textarea
+                className="form-input-auth"
+                rows={2}
+                placeholder="Reason provided for late arrival..."
+                value={editLateReason}
+                onChange={(e) => setEditLateReason(e.target.value)}
+              />
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
               <button
                 type="button"
@@ -349,6 +408,71 @@ export default function AdminAttendance() {
                 </div>
               </div>
             </div>
+
+            {/* Late Check-In Reason Section (Section 7) */}
+            {(viewRecord.isLate || (viewRecord.status || '').toUpperCase() === 'LATE' || viewRecord.lateReason) && (
+              <div
+                style={{
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  padding: '12px 14px',
+                  borderRadius: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertCircle size={16} color="#b45309" />
+                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#92400e' }}>
+                      LATE CHECK-IN (After 09:30 AM IST)
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: '700',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: viewRecord.lateReason ? '#ecfdf5' : '#fef2f2',
+                      color: viewRecord.lateReason ? '#047857' : '#b91c1c',
+                      border: `1px solid ${viewRecord.lateReason ? '#a7f3d0' : '#fecaca'}`,
+                    }}
+                  >
+                    {viewRecord.lateReason ? 'Reason Submitted' : 'Reason Pending'}
+                  </span>
+                </div>
+                {viewRecord.lateReason ? (
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#78350f', fontWeight: '600', marginBottom: '4px' }}>
+                      Official Reason:
+                    </div>
+                    <p
+                      style={{
+                        fontSize: '0.85rem',
+                        color: '#451a03',
+                        margin: 0,
+                        fontStyle: 'italic',
+                        backgroundColor: '#ffffff',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #fef3c7',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      "{viewRecord.lateReason}"
+                    </p>
+                    {viewRecord.lateReasonSubmittedAt && (
+                      <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: '6px' }}>
+                        Recorded at: {new Date(viewRecord.lateReasonSubmittedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.8rem', color: '#b91c1c' }}>
+                    No late check-in explanation has been submitted by the employee yet.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* GPS Location Details */}
             {viewRecord.checkInLatitude !== null && viewRecord.checkInLongitude !== null && (

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, Union, Any
 from pydantic import BaseModel, ConfigDict
 
 
@@ -17,10 +17,17 @@ class AttendanceRecordUpdate(BaseModel):
     workMode: Optional[str] = None
     checkIn: Optional[str] = None
     checkOut: Optional[str] = None
+    lateReason: Optional[str] = None
+
+
+class LateReasonSubmissionRequest(BaseModel):
+    attendanceId: Optional[Union[int, str]] = None
+    date: Optional[str] = None
+    reason: str
 
 
 class AttendanceResponse(BaseModel):
-    id: int
+    id: Union[int, str]
     employeeId: str
     employeeName: str
     department: str
@@ -32,6 +39,9 @@ class AttendanceResponse(BaseModel):
     status: str
     duration: str
     isLate: bool
+    lateReason: Optional[str] = None
+    lateReasonStatus: Optional[str] = None
+    lateReasonSubmittedAt: Optional[str] = None
     checkInLatitude: Optional[float] = None
     checkInLongitude: Optional[float] = None
     checkInLocationAccuracy: Optional[float] = None
@@ -42,7 +52,7 @@ class AttendanceResponse(BaseModel):
 
 
 class AttendanceTodayStatusResponse(BaseModel):
-    id: Optional[int] = None
+    id: Optional[Union[int, str]] = None
     hasRecord: bool = False
     isCheckedIn: bool
     isCompleted: bool = False
@@ -54,6 +64,9 @@ class AttendanceTodayStatusResponse(BaseModel):
     status: str
     date: str
     isLate: Optional[bool] = False
+    lateReason: Optional[str] = None
+    lateReasonStatus: Optional[str] = None
+    lateReasonSubmittedAt: Optional[str] = None
     checkInTimestamp: Optional[str] = None
     checkOutTimestamp: Optional[str] = None
     checkInLatitude: Optional[float] = None

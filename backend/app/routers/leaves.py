@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 
 from app.core.config import settings
+from app.core.firebase import get_firestore_client, is_firebase_live
 from app.db.session import get_db
 from app.models.leave import Leave
 from app.models.employee import Employee
@@ -12,6 +14,8 @@ from app.models.user import User
 from app.schemas.leave import LeaveCreateRequest, LeaveStatusUpdateRequest
 from app.dependencies.auth import get_current_user, get_current_admin, get_current_employee
 from app.services.firestore_service import FirestoreService
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/leaves", tags=["Leaves"])
 
@@ -242,18 +246,85 @@ def list_leaves(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List leave requests (Admins see all; employees see their own)."""
+    """List leave requests across mobile and web (Admins see all; employees see their own)."""
     user_role = getattr(current_user, "role", "employee")
     user_email = getattr(current_user, "email", "")
     user_id = getattr(current_user, "id", None)
 
     if settings.DATABASE_BACKEND == "firebase":
+        top_leaves = FirestoreService.list_all("leaves")
+        cg_requests = FirestoreService.collection_group("requests")
+
+        merged = {}
+        for l in top_leaves:
+            code = l.get("leave_code") or l.get("id") or ""
+            merged[str(code)] = l
+
+        for req in cg_requests:
+            req_id = req.get("id") or req.get("_firestore_id") or ""
+            key = str(req.get("leave_code") or req_id)
+            if key not in merged:
+                emp_code = req.get("employeeId") or req.get("employee_id") or ""
+                applied_date_val = req.get("appliedAt") or req.get("applied_date") or date.today().isoformat()
+                if hasattr(applied_date_val, "isoformat"):
+                    applied_date_val = applied_date_val.isoformat()
+                elif hasattr(applied_date_val, "toDate"):
+                    applied_date_val = applied_date_val.toDate().isoformat()
+
+                start_d = str(req.get("fromDate") or req.get("from_date") or req.get("startDate") or "")
+                end_d = str(req.get("toDate") or req.get("to_date") or req.get("endDate") or start_d)
+
+                emp_name = req.get("employeeName") or req.get("name") or ""
+                if not emp_name or emp_name == "Employee":
+                    if emp_code:
+                        emps = FirestoreService.query("employees", {"employee_id": emp_code})
+                        if not emps:
+                            emps = FirestoreService.query("employees", {"uid": emp_code})
+                        if not emps and req.get("email"):
+                            emps = FirestoreService.query("employees", {"email": req.get("email")})
+                        if emps:
+                            emp_name = emps[0].get("full_name") or emps[0].get("fullName") or emps[0].get("name") or "Employee"
+                            real_code = emps[0].get("employee_id") or emps[0].get("employeeId")
+                            if real_code and len(str(emp_code)) > 15:
+                                emp_code = real_code
+                if not emp_name:
+                    emp_name = "Employee"
+
+                merged[key] = {
+                    "id": key,
+                    "leave_code": key,
+                    "employee_id": emp_code,
+                    "employeeId": emp_code,
+                    "employee_name": emp_name,
+                    "employeeName": emp_name,
+                    "leave_type": req.get("leaveType") or req.get("leave_type") or "Casual Leave",
+                    "leaveType": req.get("leaveType") or req.get("leave_type") or "Casual Leave",
+                    "duration_type": req.get("duration") or req.get("durationType") or "Full-Day Leave",
+                    "start_date": start_d,
+                    "from_date": start_d,
+                    "fromDate": start_d,
+                    "end_date": end_d,
+                    "to_date": end_d,
+                    "toDate": end_d,
+                    "reason": req.get("reason", ""),
+                    "status": (req.get("status") or "Pending").capitalize(),
+                    "applied_date": str(applied_date_val).split("T")[0],
+                    "reviewed_by": req.get("reviewedBy") or req.get("reviewed_by"),
+                    "reviewed_at": str(req.get("reviewedAt") or ""),
+                }
+
+        all_leaves = list(merged.values())
         if user_role == "admin":
-            leaves = FirestoreService.list_all("leaves")
+            leaves = all_leaves
         else:
             emps = FirestoreService.query("employees", {"email": user_email})
             emp_id = emps[0].get("employee_id") if emps else ""
-            leaves = FirestoreService.query("leaves", {"employee_id": emp_id})
+            emp_uid = emps[0].get("uid") if emps else ""
+            leaves = [
+                l for l in all_leaves
+                if str(l.get("employee_id")) in [str(emp_id), str(emp_uid), user_email]
+                or str(l.get("employeeId")) in [str(emp_id), str(emp_uid), user_email]
+            ]
         leaves.sort(key=lambda x: str(x.get("applied_date", "")), reverse=True)
         return [format_leave_response(l) for l in leaves]
 
@@ -292,9 +363,43 @@ def get_my_leaves(
 ):
     """Retrieve leave applications for the current employee."""
     emp_id = getattr(employee, "employee_id", None) or getattr(employee, "employeeId", None)
+    emp_uid = str(getattr(employee, "uid", None) or getattr(employee, "id", None) or emp_id)
 
     if settings.DATABASE_BACKEND == "firebase":
-        leaves = FirestoreService.query("leaves", {"employee_id": emp_id})
+        top_leaves = FirestoreService.query("leaves", {"employee_id": emp_id})
+        cg_requests = FirestoreService.collection_group("requests")
+
+        merged = {}
+        for l in top_leaves:
+            code = l.get("leave_code") or l.get("id") or ""
+            merged[str(code)] = l
+
+        for req in cg_requests:
+            c_eid = str(req.get("employeeId") or req.get("employee_id") or "")
+            if c_eid in [str(emp_id), str(emp_uid)]:
+                req_id = req.get("id") or req.get("_firestore_id") or ""
+                key = str(req.get("leave_code") or req_id)
+                if key not in merged:
+                    applied_date_val = req.get("appliedAt") or req.get("applied_date") or date.today().isoformat()
+                    start_d = str(req.get("fromDate") or req.get("from_date") or req.get("startDate") or "")
+                    end_d = str(req.get("toDate") or req.get("to_date") or req.get("endDate") or start_d)
+                    merged[key] = {
+                        "id": key,
+                        "leave_code": key,
+                        "employee_id": emp_id,
+                        "employee_name": req.get("employeeName") or req.get("name") or "Employee",
+                        "leave_type": req.get("leaveType") or req.get("leave_type") or "Casual Leave",
+                        "duration_type": req.get("duration") or req.get("durationType") or "Full-Day Leave",
+                        "start_date": start_d,
+                        "from_date": start_d,
+                        "end_date": end_d,
+                        "to_date": end_d,
+                        "reason": req.get("reason", ""),
+                        "status": (req.get("status") or "Pending").capitalize(),
+                        "applied_date": str(applied_date_val).split("T")[0],
+                    }
+
+        leaves = list(merged.values())
         leaves.sort(key=lambda x: str(x.get("applied_date", "")), reverse=True)
         return [format_leave_response(l) for l in leaves]
 
@@ -424,12 +529,58 @@ def apply_leave(
         }
         FirestoreService.save("leaves", code, leave_doc)
 
+        emp_uid = str(emp.get("uid") or emp.get("id") or emp_id)
+        FirestoreService.save_subdocument(
+            collection="leaves",
+            doc_id=emp_uid,
+            subcollection="requests",
+            subdoc_id=code,
+            data={
+                "id": code,
+                "leaveCode": code,
+                "employeeId": emp_uid,
+                "employeeName": emp_name,
+                "leaveType": canonical_type,
+                "duration": duration_type,
+                "fromDate": s_date,
+                "toDate": e_date,
+                "reason": reason_str,
+                "status": "Pending",
+                "appliedAt": now_iso,
+            }
+        )
+
         FirestoreService.add_audit_log(
             actor_uid=emp_id,
             action="LEAVE_APPLIED",
             target_record=code,
             metadata={"type": canonical_type, "duration": duration_type},
         )
+
+        # Dual-write to PostgreSQL database for cross-platform data synchronization
+        try:
+            pg_leave = Leave(
+                leave_code=code,
+                employee_id=emp_id,
+                employee_name=emp_name,
+                leave_type=canonical_type,
+                start_date=date.fromisoformat(s_date),
+                end_date=date.fromisoformat(e_date),
+                days_count=days_count,
+                duration_type=duration_type,
+                start_time=start_time_val,
+                end_time=end_time_val,
+                hours_count=hours_count,
+                reason=reason_str,
+                status="Pending",
+                applied_date=date.today(),
+            )
+            db.add(pg_leave)
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Dual-write leave to PostgreSQL failed: {e}")
+            db.rollback()
+
         return format_leave_response(leave_doc)
 
     # PostgreSQL fallback
@@ -462,35 +613,131 @@ def update_leave_status(
     db: Session = Depends(get_db),
     admin_user=Depends(get_current_admin),
 ):
-    """Approve or reject leave request (Admin only)."""
+    """Approve or reject leave request across mobile and web (Admin only)."""
     admin_email = getattr(admin_user, "email", "admin@arshith.com")
     now_iso = datetime.now(timezone.utc).isoformat()
     remarks = payload.rejectionRemarks or payload.rejection_remarks or payload.rejection_reason
+
+    # 1. Normalize and validate status
+    raw_status = (payload.status or "").strip()
+    if raw_status.lower() == "approved":
+        canonical_status = "Approved"
+    elif raw_status.lower() == "rejected":
+        canonical_status = "Rejected"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid status. Status must be 'Approved' or 'Rejected'."
+        )
 
     if settings.DATABASE_BACKEND == "firebase":
         leave = FirestoreService.get_by_id("leaves", leave_id)
         if not leave:
             raise HTTPException(status_code=404, detail=f"Leave request '{leave_id}' not found.")
 
-        updates = {
-            "status": payload.status,
-            "reviewed_by": admin_email,
-        }
-        if payload.status == "Approved":
-            updates["approved_at"] = now_iso
-        if remarks:
-            updates["rejection_remarks"] = remarks
+        current_status = str(leave.get("status") or "Pending").strip().capitalize()
+        if current_status in ["Approved", "Rejected"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Leave request '{leave_id}' is already {current_status} and cannot be processed again."
+            )
 
-        doc_key = leave.get("leave_code") or leave_id
-        FirestoreService.update("leaves", doc_key, updates)
-        leave.update(updates)
+        doc_key = str(leave.get("leave_code") or leave.get("id") or leave_id)
+        emp_uid = str(leave.get("_parent_id") or leave.get("employee_uid") or leave.get("employee_id") or leave.get("employeeId") or "")
+
+        subdoc_updates = {
+            "status": canonical_status,
+            "reviewed_by": admin_email,
+            "reviewedBy": admin_email,
+            "reviewed_at": now_iso,
+            "reviewedAt": now_iso,
+            "updated_at": now_iso,
+        }
+        if canonical_status == "Approved":
+            subdoc_updates["approved_at"] = now_iso
+            subdoc_updates["approvedAt"] = now_iso
+            subdoc_updates["approved_by"] = admin_email
+            subdoc_updates["rejection_remarks"] = None
+            subdoc_updates["rejectionRemarks"] = None
+            subdoc_updates["rejection_reason"] = None
+            subdoc_updates["rejectionReason"] = None
+        else:
+            rej_val = remarks or "Rejected by Administrator"
+            subdoc_updates["rejection_remarks"] = rej_val
+            subdoc_updates["rejectionRemarks"] = rej_val
+            subdoc_updates["rejection_reason"] = rej_val
+            subdoc_updates["rejectionReason"] = rej_val
+
+        # 1. If _doc_path is known, update subcollection directly in Firestore
+        if leave.get("_doc_path"):
+            fs = get_firestore_client()
+            if is_firebase_live() and fs is not None:
+                try:
+                    from app.services.firestore_service import _serialize_dict
+                    fs.document(leave["_doc_path"]).update(_serialize_dict(subdoc_updates))
+                except Exception as e:
+                    logger.error(f"Error updating subcollection doc at {leave['_doc_path']}: {e}")
+
+        # 2. Update subdocument via helper
+        if emp_uid:
+            sub_id = leave.get("_firestore_id") or doc_key
+            FirestoreService.update_subdocument(
+                collection="leaves",
+                doc_id=emp_uid,
+                subcollection="requests",
+                subdoc_id=sub_id,
+                updates=subdoc_updates,
+            )
+
+        # 3. Update or save top-level leaves document
+        top_doc = {
+            **leave,
+            **subdoc_updates,
+            "id": doc_key,
+            "leave_code": leave.get("leave_code") or doc_key,
+            "status": canonical_status,
+        }
+        FirestoreService.save("leaves", doc_key, top_doc)
+        leave.update(top_doc)
+
+        # 4. Sync local fallback database if applicable
+        from app.services.firestore_service import _load_local_db, _save_local_db
+        db_local = _load_local_db()
+        cg_key = "cg_requests"
+        if cg_key in db_local:
+            for i, item in enumerate(db_local[cg_key]):
+                if str(item.get("id")) == str(leave_id) or str(item.get("leave_code")) == str(leave_id):
+                    db_local[cg_key][i].update(subdoc_updates)
+                    break
+            _save_local_db(db_local)
 
         FirestoreService.add_audit_log(
             actor_uid=admin_email,
-            action=f"LEAVE_{payload.status.upper()}",
+            action=f"LEAVE_{canonical_status.upper()}",
             target_record=doc_key,
-            metadata={"status": payload.status, "remarks": remarks},
+            metadata={"status": canonical_status, "remarks": remarks},
         )
+
+        # Dual-write update to PostgreSQL database
+        try:
+            pg_leave = db.query(Leave).filter(
+                (Leave.leave_code == doc_key) | 
+                (Leave.leave_code == leave_id) | 
+                (Leave.id == int(leave_id) if leave_id.isdigit() else False)
+            ).first()
+            if pg_leave:
+                pg_leave.status = canonical_status
+                pg_leave.reviewed_by = admin_email
+                if canonical_status == "Approved":
+                    pg_leave.approved_at = datetime.now(timezone.utc)
+                    pg_leave.rejection_remarks = None
+                else:
+                    pg_leave.rejection_remarks = remarks or "Rejected by Administrator"
+                db.commit()
+        except Exception as e:
+            logger.warning(f"Dual-write leave update to PostgreSQL failed: {e}")
+            db.rollback()
+
         return format_leave_response(leave)
 
     # PostgreSQL fallback
@@ -502,12 +749,20 @@ def update_leave_status(
     if not leave:
         raise HTTPException(status_code=404, detail=f"Leave request '{leave_id}' not found.")
 
-    leave.status = payload.status
+    current_status = str(leave.status or "Pending").strip().capitalize()
+    if current_status in ["Approved", "Rejected"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Leave request '{leave_id}' is already {current_status} and cannot be processed again."
+        )
+
+    leave.status = canonical_status
     leave.reviewed_by = admin_email
-    if payload.status == "Approved":
+    if canonical_status == "Approved":
         leave.approved_at = datetime.now(timezone.utc)
-    if remarks:
-        leave.rejection_remarks = remarks
+        leave.rejection_remarks = None
+    else:
+        leave.rejection_remarks = remarks or "Rejected by Administrator"
 
     db.commit()
     db.refresh(leave)

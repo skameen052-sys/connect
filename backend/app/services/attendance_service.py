@@ -191,10 +191,7 @@ def get_employee_authorized_work_mode(employee) -> str:
     # Derive from employee location setting
     loc = getattr(employee, "location", None)
     if not loc or not str(loc).strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Employee work mode is not configured or authorized in company profile.",
-        )
+        return "WFO"
 
     loc_str = str(loc).strip().upper()
     if any(k in loc_str for k in ["WFH", "REMOTE", "HOME", "WORK FROM HOME"]):
@@ -203,10 +200,7 @@ def get_employee_authorized_work_mode(employee) -> str:
     if any(k in loc_str for k in ["HQ", "OFFICE", "WFO", "ONSITE"]):
         return "WFO"
 
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"Employee location/work mode '{loc}' is not authorized for attendance.",
-    )
+    return "WFO"
 
 
 def detect_image_type(file_bytes: bytes) -> Optional[Tuple[str, str]]:

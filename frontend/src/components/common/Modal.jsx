@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export default function Modal({ isOpen, onClose, title, subtitle, children, maxWidth = '520px' }) {
@@ -7,18 +8,19 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
       if (e.key === 'Escape' && isOpen) onClose();
     };
     if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        window.removeEventListener('keydown', handleKeyDown);
+      };
     }
-    return () => {
-      document.body.style.overflow = '';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  return (
+  const modalNode = (
     <div
       className="modal-backdrop"
       onClick={onClose}
@@ -27,11 +29,14 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
         inset: 0,
         backgroundColor: 'rgba(15, 23, 42, 0.45)',
         backdropFilter: 'blur(3px)',
-        zIndex: 999,
+        WebkitBackdropFilter: 'blur(3px)',
+        zIndex: 2000,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '16px',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
         animation: 'fadeIn 0.2s ease-out'
       }}
     >
@@ -44,10 +49,11 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
           boxShadow: '0 20px 40px -15px rgba(0,0,0,0.2)',
           width: '100%',
           maxWidth,
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, calc(100dvh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          boxSizing: 'border-box',
           animation: 'fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
         role="dialog"
@@ -56,13 +62,15 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
       >
         {/* Modal Header */}
         <div
+          className="modal-header"
           style={{
             padding: '20px 24px',
             borderBottom: '1px solid #f1f5f9',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '12px'
+            gap: '12px',
+            flexShrink: 0
           }}
         >
           <div>
@@ -88,7 +96,8 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
               alignItems: 'center',
               justifyContent: 'center',
               color: '#64748b',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              flexShrink: 0
             }}
             aria-label="Close modal"
           >
@@ -97,10 +106,23 @@ export default function Modal({ isOpen, onClose, title, subtitle, children, maxW
         </div>
 
         {/* Modal Body */}
-        <div style={{ padding: '24px 24px 32px 24px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div
+          className="modal-body"
+          style={{
+            padding: '24px 24px 28px 24px',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            flex: '1 1 auto',
+            minHeight: 0
+          }}
+        >
           {children}
         </div>
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalNode, document.body)
+    : modalNode;
 }

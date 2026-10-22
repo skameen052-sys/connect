@@ -37,7 +37,16 @@ export const authService = {
       localStorage.removeItem('arshith_auth_token');
       localStorage.removeItem('arshith_role');
       localStorage.removeItem('arshith_user');
-      const msg = error.response?.data?.detail || error.response?.data?.message || error.message || 'Invalid employee email or password.';
+      let msg = error.response?.data?.detail || error.response?.data?.message;
+      if (!error.response) {
+        msg = 'Unable to connect to the server. Please try again.';
+      } else if (!msg) {
+        if (error.response?.status >= 500) {
+          msg = 'Unable to connect to the server. Please try again.';
+        } else {
+          msg = 'Invalid employee email or password.';
+        }
+      }
       throw new Error(msg);
     }
   },
@@ -74,7 +83,7 @@ export const authService = {
       localStorage.removeItem('arshith_auth_token');
       localStorage.removeItem('arshith_role');
       localStorage.removeItem('arshith_user');
-      const msg = error.response?.data?.detail || error.response?.data?.message || error.message || 'Invalid administrator credentials';
+      const msg = error.response?.data?.detail || error.response?.data?.message || (error.response ? 'Invalid administrator credentials' : 'Unable to connect to the server. Please try again.');
       throw new Error(msg);
     }
   },
@@ -96,13 +105,20 @@ export const authService = {
 
       return {
         success: true,
-        message: response.data.message || 'Employee registered successfully.',
+        message: response.data?.message || 'Your registration request is awaiting admin approval.',
       };
     } catch (error) {
       const data = error.response?.data;
-      const msg =
-        (typeof data?.detail === 'string' ? data.detail : data?.message) ||
-        'Registration failed';
+      let msg = typeof data?.detail === 'string' ? data.detail : data?.message;
+      if (!error.response) {
+        msg = 'Unable to connect to the server. Please check your connection and try again.';
+      } else if (!msg) {
+        if (error.response?.status >= 500) {
+          msg = "We couldn't complete your registration right now. Please try again later.";
+        } else {
+          msg = 'Please check the form for errors.';
+        }
+      }
       const customErr = new Error(msg);
       customErr.status = error.response?.status;
       customErr.errors =

@@ -211,17 +211,43 @@ def create_announcement(
             "announcement_code": code,
             "title": data.title.strip(),
             "message": data.message.strip(),
+            "type": matched_type,
+            "announcement_type": matched_type,
             "author": author_val,
             "date": today_iso,
             "priority": raw_priority,
-            "announcement_type": matched_type,
+            "sendTo": recip_type,
             "recipient_type": recip_type,
             "recipient_ids": raw_recipients if recip_type != "All Employees" else None,
+            "selectedEmployeeIds": raw_recipients if recip_type != "All Employees" else None,
             "is_active": True,
+            "createdAt": now_iso,
             "created_at": now_iso,
+            "createdBy": getattr(admin_user, "email", "Administrator"),
             "updated_at": now_iso,
         }
         FirestoreService.save("announcements", code, ann_doc)
+        FirestoreService.save("notifications", code, ann_doc)
+
+        # Dual-write to PostgreSQL database for shared persistence
+        try:
+            pg_ann = Announcement(
+                announcement_code=code,
+                title=data.title.strip(),
+                message=data.message.strip(),
+                author=author_val,
+                date=date.today(),
+                priority=raw_priority,
+                announcement_type=matched_type,
+                recipient_type=recip_type,
+                recipient_ids=json.dumps(raw_recipients) if raw_recipients else None,
+                is_active=True,
+            )
+            db.add(pg_ann)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+
         return format_announcement_response(ann_doc)
 
     # PostgreSQL fallback

@@ -29,16 +29,24 @@ export default function EmployeeLogin() {
 
   const validate = () => {
     const newErrors = {};
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email address is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
+    const emailTrimmed = formData.email.trim();
+    const passwordTrimmed = formData.password;
+
+    // Case A: Email or password missing
+    if (!emailTrimmed || !passwordTrimmed) {
+      newErrors.form = 'Please enter your company email and password.';
+      if (!emailTrimmed) newErrors.email = 'Please enter your company email and password.';
+      if (!passwordTrimmed) newErrors.password = 'Please enter your company email and password.';
+      setErrors(newErrors);
+      return false;
     }
 
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    // Case B: Invalid email format or unsupported domain
+    if (!/^[a-zA-Z0-9_.+-]+@arshithgroup\.com$/i.test(emailTrimmed)) {
+      newErrors.email = 'Please use your company email ending with @arshithgroup.com.';
+      newErrors.form = 'Please use your company email ending with @arshithgroup.com.';
+      setErrors(newErrors);
+      return false;
     }
 
     setErrors(newErrors);
@@ -86,9 +94,9 @@ export default function EmployeeLogin() {
             {errors.form && (
               <div
                 style={{
-                  backgroundColor: errors.form.toLowerCase().includes('pending') ? '#fffbeb' : '#fef2f2',
-                  border: `1px solid ${errors.form.toLowerCase().includes('pending') ? '#fde68a' : '#fecaca'}`,
-                  color: errors.form.toLowerCase().includes('pending') ? '#92400e' : '#b91c1c',
+                  backgroundColor: (errors.form.toLowerCase().includes('pending') || errors.form.toLowerCase().includes('awaiting')) ? '#fffbeb' : '#fef2f2',
+                  border: `1px solid ${(errors.form.toLowerCase().includes('pending') || errors.form.toLowerCase().includes('awaiting')) ? '#fde68a' : '#fecaca'}`,
+                  color: (errors.form.toLowerCase().includes('pending') || errors.form.toLowerCase().includes('awaiting')) ? '#92400e' : '#b91c1c',
                   padding: '10px 14px',
                   borderRadius: '8px',
                   fontSize: '0.85rem',

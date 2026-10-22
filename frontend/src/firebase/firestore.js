@@ -10,6 +10,7 @@ import {
   addDoc,
   updateDoc,
   serverTimestamp,
+  onSnapshot,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from './firebaseConfig';
@@ -107,3 +108,52 @@ export const uploadAttendanceSelfieToStorage = async (fileOrBlob, employeeId, re
     downloadUrl,
   };
 };
+
+// 7. Real-time Subscriptions for Cross-Platform Live Updates
+export const subscribeToPendingEmployees = (callback, onError) => {
+  if (!db) return () => {};
+  try {
+    const colRef = collection(db, 'employees');
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const employees = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          _firestore_id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        callback(employees);
+      },
+      (error) => {
+        if (onError) onError(error);
+      }
+    );
+  } catch (err) {
+    if (onError) onError(err);
+    return () => {};
+  }
+};
+
+export const subscribeToAttendanceRecords = (callback, onError) => {
+  if (!db) return () => {};
+  try {
+    const colRef = collection(db, 'attendance');
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const records = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        callback(records);
+      },
+      (error) => {
+        if (onError) onError(error);
+      }
+    );
+  } catch (err) {
+    if (onError) onError(err);
+    return () => {};
+  }
+};
+

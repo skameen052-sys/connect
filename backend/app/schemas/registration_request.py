@@ -5,6 +5,11 @@ from pydantic import BaseModel, ConfigDict
 class RegistrationRequestUpdate(BaseModel):
     status: Optional[str] = None  # "Approved" or "Rejected"
     reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    rejectionReason: Optional[str] = None
+
+    def get_reason(self) -> Optional[str]:
+        return self.reason or self.rejection_reason or self.rejectionReason
 
 
 class RegistrationRequestResponse(BaseModel):

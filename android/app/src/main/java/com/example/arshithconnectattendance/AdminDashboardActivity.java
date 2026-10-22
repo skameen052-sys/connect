@@ -95,60 +95,65 @@ public class AdminDashboardActivity extends ComponentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        setContentView(R.layout.activity_admin_dashboard);
+        try {
+            setContentView(R.layout.activity_admin_dashboard);
 
-        // =====================================================
-        // FIREBASE
-        // =====================================================
+            // =====================================================
+            // FIREBASE
+            // =====================================================
 
-        firebaseAuth = FirebaseAuth.getInstance();
-        firestore = FirebaseFirestore.getInstance();
-        currentUser = firebaseAuth.getCurrentUser();
+            firebaseAuth = FirebaseAuth.getInstance();
+            firestore = FirebaseFirestore.getInstance();
+            currentUser = firebaseAuth.getCurrentUser();
 
-        // =====================================================
-        // CHECK LOGIN
-        // =====================================================
+            // =====================================================
+            // CHECK LOGIN
+            // =====================================================
 
-        if (currentUser == null) {
-            goToAdminLogin();
-            return;
+            if (currentUser == null) {
+                goToAdminLogin();
+                return;
+            }
+
+            // =====================================================
+            // INITIALIZE VIEWS
+            // =====================================================
+
+            initializeViews();
+
+            // =====================================================
+            // SETUP DRAWER
+            // =====================================================
+
+            setupAdminDrawer();
+
+            // =====================================================
+            // SETUP CARDS
+            // =====================================================
+
+            setupManagementCards();
+
+            // =====================================================
+            // LOGOUT
+            // =====================================================
+
+            setupLogout();
+
+            // =====================================================
+            // BACK BUTTON
+            // =====================================================
+
+            setupBackButton();
+
+            // =====================================================
+            // VERIFY ADMIN
+            // =====================================================
+
+            verifyAdminAndLoadDashboard();
+        } catch (Exception e) {
+            android.util.Log.e("AdminDashboard", "Error during admin dashboard onCreate", e);
+            Toast.makeText(this, "Could not initialize admin dashboard. Please try again.", Toast.LENGTH_LONG).show();
         }
-
-        // =====================================================
-        // INITIALIZE VIEWS
-        // =====================================================
-
-        initializeViews();
-
-        // =====================================================
-        // SETUP DRAWER
-        // =====================================================
-
-        setupAdminDrawer();
-
-        // =====================================================
-        // SETUP CARDS
-        // =====================================================
-
-        setupManagementCards();
-
-        // =====================================================
-        // LOGOUT
-        // =====================================================
-
-        setupLogout();
-
-        // =====================================================
-        // BACK BUTTON
-        // =====================================================
-
-        setupBackButton();
-
-        // =====================================================
-        // VERIFY ADMIN
-        // =====================================================
-
-        verifyAdminAndLoadDashboard();
     }
 
     // =========================================================

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Check, X, Filter, AlertCircle } from 'lucide-react';
+import { Search, Check, X, Filter, AlertCircle, CheckCircle2 } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import EmptyState from '../../components/common/EmptyState';
 import { leaveService } from '../../services/leaveService';
@@ -40,6 +40,9 @@ export default function AdminLeaveManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isLoading, setIsLoading] = useState(false);
+  const [processingId, setProcessingId] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const loadLeaves = useCallback(async () => {
     setIsLoading(true);
@@ -69,11 +72,23 @@ export default function AdminLeaveManagement() {
   });
 
   const handleStatusUpdate = async (id, newStatus) => {
+    if (!id || processingId) return;
+    setProcessingId(id);
+    setErrorMessage('');
+    setSuccessMessage('');
     try {
       await leaveService.updateLeaveStatus(id, newStatus);
+      setSuccessMessage(
+        newStatus === 'Approved'
+          ? 'Leave request approved successfully.'
+          : 'Leave request rejected successfully.'
+      );
       await loadLeaves();
+      setTimeout(() => setSuccessMessage(''), 4500);
     } catch (err) {
-      console.error('Failed to update leave', err);
+      setErrorMessage(err.message || `Failed to ${newStatus.toLowerCase()} leave request.`);
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -87,6 +102,20 @@ export default function AdminLeaveManagement() {
           { label: 'Leave Management' },
         ]}
       />
+
+      {successMessage && (
+        <div style={{ backgroundColor: '#ecfdf5', color: '#047857', padding: '12px 18px', borderRadius: '12px', border: '1px solid #a7f3d0', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <CheckCircle2 size={18} />
+          <span style={{ fontWeight: '500' }}>{successMessage}</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '12px 18px', borderRadius: '12px', border: '1px solid #fecaca', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertCircle size={18} />
+          <span style={{ fontWeight: '500' }}>{errorMessage}</span>
+        </div>
+      )}
 
       <div className="management-page-card">
         {/* Filter Toolbar */}
@@ -137,9 +166,18 @@ export default function AdminLeaveManagement() {
               </thead>
               <tbody>
                 {filteredLeaves.map((leave) => {
+                  const targetId = leave.id || leave.request_id || leave.requestId || leave.leave_id;
+                  const isProcessing = processingId === targetId;
+
+                  const rawStatus = (leave.status || 'Pending').trim();
+                  const normStatus = rawStatus.toLowerCase();
+                  const isPending = normStatus === 'pending';
+
                   let badgeClass = 'badge-pending';
-                  if (leave.status === 'Approved') badgeClass = 'badge-approved';
-                  if (leave.status === 'Rejected') badgeClass = 'badge-rejected';
+                  if (normStatus === 'approved') badgeClass = 'badge-approved';
+                  if (normStatus === 'rejected') badgeClass = 'badge-rejected';
+
+                  const displayStatus = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
 
                   const empName = leave.employeeName || leave.employee_name || 'Employee';
                   const empId = leave.employeeId || leave.employee_id || '';
@@ -156,7 +194,7 @@ export default function AdminLeaveManagement() {
                   const hoursCount = leave.hours_count ?? leave.hoursCount ?? leave.hours;
 
                   return (
-                    <tr key={leave.id || leave.request_id}>
+                    <tr key={targetId || Math.random()}>
                       <td>
                         <div style={{ fontWeight: '700', color: '#0b3d2b' }}>
                           {empName}
@@ -196,33 +234,43 @@ export default function AdminLeaveManagement() {
                       </td>
                       <td>
                         <span className={`badge-status ${badgeClass}`}>
-                          {leave.status}
+                          {displayStatus}
                         </span>
                       </td>
                       <td>
-                        {leave.status === 'Pending' ? (
+                        {isPending ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button
                               type="button"
                               className="table-action-btn btn-approve"
-                              onClick={() => handleStatusUpdate(leave.id, 'Approved')}
+                              onClick={() => handleStatusUpdate(targetId, 'Approved')}
+                              disabled={isProcessing || processingId !== null}
                               title="Approve leave"
+                              style={{
+                                opacity: isProcessing ? 0.7 : 1,
+                                cursor: isProcessing ? 'wait' : 'pointer',
+                              }}
                             >
                               <Check size={14} />
-                              <span>Approve</span>
+                              <span>{isProcessing ? 'Processing...' : 'Approve'}</span>
                             </button>
                             <button
                               type="button"
                               className="table-action-btn btn-reject"
-                              onClick={() => handleStatusUpdate(leave.id, 'Rejected')}
+                              onClick={() => handleStatusUpdate(targetId, 'Rejected')}
+                              disabled={isProcessing || processingId !== null}
                               title="Reject leave"
+                              style={{
+                                opacity: isProcessing ? 0.7 : 1,
+                                cursor: isProcessing ? 'wait' : 'pointer',
+                              }}
                             >
                               <X size={14} />
                               <span>Reject</span>
                             </button>
                           </div>
                         ) : (
-                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '500' }}>
                             Decided
                           </span>
                         )}

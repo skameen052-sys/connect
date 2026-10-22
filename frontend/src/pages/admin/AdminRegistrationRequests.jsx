@@ -4,6 +4,7 @@ import PageHeader from '../../components/common/PageHeader';
 import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
 import { registrationRequestService } from '../../services/registrationRequestService';
+import { subscribeToPendingEmployees } from '../../firebase/firestore';
 
 export default function AdminRegistrationRequests() {
   const [requests, setRequests] = useState([]);
@@ -32,6 +33,19 @@ export default function AdminRegistrationRequests() {
 
   useEffect(() => {
     fetchRequests();
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeToPendingEmployees(() => {
+        fetchRequests();
+      });
+    } catch {
+      // Fallback to fetchRequests
+    }
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
   }, []);
 
   const handleApprove = async (req) => {

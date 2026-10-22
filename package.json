@@ -1,0 +1,19 @@
+{
+  "name": "arshith-connect",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Arshith Connect full-stack enterprise workforce platform",
+  "scripts": {
+    "android": "react-native run-android",
+    "start": "react-native start",
+    "build:android": "cd android && gradlew.bat assembleDebug",
+    "functions:serve": "npm --prefix functions run serve",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "^20.2.0",
+    "@react-native-community/cli-platform-android": "^20.2.0",
+    "react-native": "^0.85.2"
+  }
+}

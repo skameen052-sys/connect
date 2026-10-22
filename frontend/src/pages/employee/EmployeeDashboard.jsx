@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, Calendar, Briefcase, FileText, LogOut, CheckCircle, Plus, CalendarDays, Clock, AlertCircle } from 'lucide-react';
 import AttendanceCard from '../../components/employee/AttendanceCard';
 import QuickActionCard from '../../components/employee/QuickActionCard';
+import ApplyLeaveModal from '../../components/employee/ApplyLeaveModal';
 import Modal from '../../components/common/Modal';
 import { announcementService } from '../../services/announcementService';
 import { meetingService } from '../../services/meetingService';
@@ -16,12 +17,6 @@ export default function EmployeeDashboard() {
 
   // Modals for Quick Actions
   const [activeModal, setActiveModal] = useState(null); // 'announcements' | 'meetings' | 'assignments' | 'leaves'
-  const [leaveType, setLeaveType] = useState('Casual Leave');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [leaveReason, setLeaveReason] = useState('');
-  const [leaveSubmitted, setLeaveSubmitted] = useState(false);
-  const [leaveError, setLeaveError] = useState('');
 
   // Live data states
   const [announcements, setAnnouncements] = useState([]);
@@ -52,30 +47,6 @@ export default function EmployeeDashboard() {
   const handleLogout = async () => {
     await authService.logout();
     navigate('/login');
-  };
-
-  const handleApplyLeave = async (e) => {
-    e.preventDefault();
-    if (!startDate || !endDate || !leaveReason) return;
-    try {
-      setLeaveError('');
-      await leaveService.applyLeave({
-        leaveType,
-        startDate,
-        endDate,
-        reason: leaveReason,
-      });
-      setLeaveSubmitted(true);
-      setTimeout(() => {
-        setLeaveSubmitted(false);
-        setActiveModal(null);
-        setLeaveReason('');
-        setStartDate('');
-        setEndDate('');
-      }, 1500);
-    } catch (err) {
-      setLeaveError(err.message || 'Leave submission failed');
-    }
   };
 
   const storedUser = (() => {
@@ -347,120 +318,11 @@ export default function EmployeeDashboard() {
         </div>
       </Modal>
 
-      {/* 4. Leave Management & Apply Modal */}
-      <Modal
+      {/* 4. Leave Management & Apply Modal (Authoritative Apply for Leave form from screenshot 1) */}
+      <ApplyLeaveModal
         isOpen={activeModal === 'leaves'}
         onClose={() => setActiveModal(null)}
-        title="Leave Management"
-        subtitle="Check balance & submit leave application"
-      >
-        {leaveSubmitted ? (
-          <div style={{ textAlign: 'center', padding: '24px 16px' }}>
-            <CheckCircle size={44} color="#10b981" style={{ margin: '0 auto 12px auto' }} />
-            <h3 style={{ fontSize: '1.1rem', color: '#0b3d2b', marginBottom: '6px' }}>
-              Leave Application Submitted!
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
-              Your request has been recorded in the database for administrator review.
-            </p>
-          </div>
-        ) : (
-          <div>
-            {leaveError && (
-              <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '8px 12px', borderRadius: '8px', marginBottom: '12px', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <AlertCircle size={14} />
-                <span>{leaveError}</span>
-              </div>
-            )}
-            {/* Balance Overview */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '8px',
-                marginBottom: '18px',
-                textAlign: 'center'
-              }}
-            >
-              <div style={{ backgroundColor: '#ecfdf5', padding: '10px', borderRadius: '12px' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#047857' }}>12</div>
-                <div style={{ fontSize: '0.7rem', color: '#065f46', fontWeight: '600' }}>Casual Leave</div>
-              </div>
-              <div style={{ backgroundColor: '#eff6ff', padding: '10px', borderRadius: '12px' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#1d4ed8' }}>08</div>
-                <div style={{ fontSize: '0.7rem', color: '#1e40af', fontWeight: '600' }}>Sick Leave</div>
-              </div>
-              <div style={{ backgroundColor: '#fef3c7', padding: '10px', borderRadius: '12px' }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#b45309' }}>15</div>
-                <div style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: '600' }}>Earned Leave</div>
-              </div>
-            </div>
-
-            <form onSubmit={handleApplyLeave}>
-              <div className="form-group">
-                <label className="form-label">Leave Type</label>
-                <select
-                  value={leaveType}
-                  onChange={(e) => setLeaveType(e.target.value)}
-                  className="form-input-auth"
-                  style={{ width: '100%', height: '44px' }}
-                >
-                  <option value="Casual Leave">Casual Leave</option>
-                  <option value="Sick Leave">Sick Leave</option>
-                  <option value="Earned Leave">Earned Leave</option>
-                  <option value="Emergency Leave">Emergency Leave</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="form-group">
-                  <label className="form-label">Start Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="form-input-auth"
-                    style={{ width: '100%', height: '44px' }}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">End Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="form-input-auth"
-                    style={{ width: '100%', height: '44px' }}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Reason</label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="State reason for leave..."
-                  value={leaveReason}
-                  onChange={(e) => setLeaveReason(e.target.value)}
-                  className="form-input-auth"
-                  style={{ width: '100%', height: '80px', padding: '10px 14px', resize: 'none' }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="btn-primary-purple"
-                style={{ marginTop: '12px' }}
-              >
-                Submit Leave Application
-              </button>
-            </form>
-          </div>
-        )}
-      </Modal>
+      />
     </div>
   );
 }

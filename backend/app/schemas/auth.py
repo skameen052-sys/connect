@@ -3,7 +3,7 @@ from pydantic import BaseModel, EmailStr, ConfigDict
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -13,12 +13,17 @@ class AdminLoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    fullName: str
-    employeeId: str
-    email: EmailStr
+    fullName: Optional[str] = None
+    full_name: Optional[str] = None
+    employeeId: Optional[str] = None
+    employee_id: Optional[str] = None
+    email: Optional[str] = None
     phone: Optional[str] = "--"
-    password: str
+    password: Optional[str] = None
     confirmPassword: Optional[str] = None
+    confirm_password: Optional[str] = None
+    department: Optional[str] = "Operations"
+    designation: Optional[str] = "Employee"
 
 
 class UserProfileResponse(BaseModel):

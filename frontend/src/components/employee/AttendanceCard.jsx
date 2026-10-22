@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircle, AlertCircle, Clock, ShieldCheck, LogOut, Check, ChevronDown, X } from 'lucide-react';
 import { attendanceService } from '../../services/attendanceService';
+import { authService } from '../../services/authService';
 import AttendanceCheckInModal from './AttendanceCheckInModal';
 import AttendancePhotoDisplay from './AttendancePhotoDisplay';
+import LateCheckInModal from './LateCheckInModal';
 
 export default function AttendanceCard() {
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Current authenticated user info
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
 
   // Attendance state loaded from backend
   const [recordId, setRecordId] = useState(null);
@@ -17,6 +23,13 @@ export default function AttendanceCard() {
   const [workMode, setWorkMode] = useState('WFO');
   const [status, setStatus] = useState('Not Checked In');
   const [checkInDateObj, setCheckInDateObj] = useState(null);
+
+  // Late check-in state (Section 2 & 6)
+  const [isLate, setIsLate] = useState(false);
+  const [lateReason, setLateReason] = useState(null);
+  const [lateReasonStatus, setLateReasonStatus] = useState('NOT_REQUIRED');
+  const [lateReasonSubmittedAt, setLateReasonSubmittedAt] = useState(null);
+  const [isLateModalOpen, setIsLateModalOpen] = useState(false);
 
   // Work Mode dropdown state and ref
   const workModeDropdownRef = useRef(null);
@@ -94,6 +107,14 @@ export default function AttendanceCard() {
       setGpsLatitude(data.checkInLatitude ?? null);
       setGpsLongitude(data.checkInLongitude ?? null);
       setGpsAccuracy(data.checkInLocationAccuracy ?? null);
+
+      const isRecordLate = Boolean(data.isLate);
+      setIsLate(isRecordLate);
+      setLateReason(data.lateReason || null);
+      setLateReasonStatus(
+        data.lateReasonStatus || (isRecordLate ? (data.lateReason ? 'SUBMITTED' : 'PENDING') : 'NOT_REQUIRED')
+      );
+      setLateReasonSubmittedAt(data.lateReasonSubmittedAt || null);
 
       if (data.isCompleted) {
         // Attendance completed and locked for today (matches reference screenshot 2)
@@ -198,9 +219,24 @@ export default function AttendanceCard() {
     setGpsLongitude(res.checkInLongitude ?? null);
     setGpsAccuracy(res.checkInLocationAccuracy ?? null);
 
+    const isRecordLate = Boolean(res.isLate);
+    setIsLate(isRecordLate);
+    setLateReason(res.lateReason || null);
+    setLateReasonStatus(
+      res.lateReasonStatus || (isRecordLate ? (res.lateReason ? 'SUBMITTED' : 'PENDING') : 'NOT_REQUIRED')
+    );
+    setLateReasonSubmittedAt(res.lateReasonSubmittedAt || null);
+
     setIsError(false);
     setToastMessage(`Checked In (${res.workMode || workMode}) - Status: ${res.status || 'Present'}`);
     setTimeout(() => setToastMessage(''), 4000);
+
+    // If check-in is after 9:30 AM IST (late), prompt the user with Late Check-in Reason modal immediately
+    if (isRecordLate && !res.lateReason) {
+      setTimeout(() => {
+        setIsLateModalOpen(true);
+      }, 450);
+    }
   };
 
   // Check-Out: confirmation modal trigger
@@ -213,15 +249,16 @@ export default function AttendanceCard() {
     try {
       setIsProcessingCheckout(true);
       setIsError(false);
-      const res = await attendanceService.checkOut();
+      const empId = currentUser?.employeeId || currentUser?.employee_id;
+      const res = await attendanceService.checkOut({ employeeId: empId });
 
       setIsCheckOutModalOpen(false);
       setIsCheckedIn(false);
       setIsCompleted(true);
       setStatus('Completed');
       setCheckOutTime(res.checkOut || res.checkOutTime || 'Just now');
-      if (res.duration) {
-        setWorkingDuration(res.duration);
+      if (res.duration || res.workingDuration) {
+        setWorkingDuration(res.duration || res.workingDuration);
       }
 
       setToastMessage(`Checked Out successfully at ${res.checkOut || res.checkOutTime || 'now'}`);
@@ -235,6 +272,26 @@ export default function AttendanceCard() {
     }
   };
 
+  // Lock background scroll and listen for Escape key when Check-Out modal is open
+  useEffect(() => {
+    if (!isCheckOutModalOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !isProcessingCheckout) {
+        setIsCheckOutModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isCheckOutModalOpen, isProcessingCheckout]);
+
   // Status badge styling
   let badgeClass = 'status-badge-not-checked';
   let badgeLabel = 'Not Checked In';
@@ -243,8 +300,13 @@ export default function AttendanceCard() {
     badgeClass = 'status-badge-completed';
     badgeLabel = 'Completed';
   } else if (isCheckedIn) {
-    badgeClass = 'status-badge-checked';
-    badgeLabel = 'Checked In';
+    if (isLate) {
+      badgeClass = 'status-badge-late';
+      badgeLabel = lateReason ? 'Late • Reason Submitted' : 'Late • Reason Pending';
+    } else {
+      badgeClass = 'status-badge-checked';
+      badgeLabel = 'Checked In';
+    }
   }
 
   return (
@@ -455,6 +517,47 @@ export default function AttendanceCard() {
         </button>
       </div>
 
+      {/* Late Check-in Reason Submitted Card (Section 6) */}
+      {(isCheckedIn || isCompleted) && isLate && lateReason && (
+        <div className="attendance-late-reason-card animate-fade-in">
+          <div className="attendance-late-reason-header">
+            <span className="attendance-late-reason-title">
+              <AlertCircle size={15} color="#b45309" />
+              Late Check-in Reason
+            </span>
+            <span className="attendance-late-reason-tag">Submitted</span>
+          </div>
+          <p className="attendance-late-reason-text">"{lateReason}"</p>
+          {lateReasonSubmittedAt && (
+            <span className="attendance-late-reason-time">
+              Recorded at: {new Date(lateReasonSubmittedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Late Check-in Reason Pending Prompt (Section 6) */}
+      {(isCheckedIn || isCompleted) && isLate && !lateReason && (
+        <div className="attendance-late-pending-card animate-fade-in">
+          <div className="attendance-late-pending-content">
+            <div className="attendance-late-pending-title">
+              <AlertCircle size={15} color="#c2410c" />
+              <span>Late Reason Required</span>
+            </div>
+            <p className="attendance-late-pending-desc">
+              Your check-in was recorded after 9:30 AM IST. Please provide your reason.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-submit-reason-pill"
+            onClick={() => setIsLateModalOpen(true)}
+          >
+            Submit Reason
+          </button>
+        </div>
+      )}
+
       {/* Compact Check-In Confirmation Banner (photo card is hidden from normal dashboard) */}
       {isCheckedIn && !isCompleted && (
         <div className="attendance-wfo-recorded-banner animate-fade-in">
@@ -579,50 +682,80 @@ export default function AttendanceCard() {
         workMode={workMode}
       />
 
-      {/* Check-Out Confirmation Modal */}
-      {isCheckOutModalOpen && (
-        <div className="attendance-modal-overlay">
-          <div className="attendance-modal-container animate-fade-in" style={{ maxWidth: '420px' }}>
-            <div className="attendance-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <LogOut size={18} color="#0b3d2b" />
-                <h3 className="attendance-modal-title" style={{ fontSize: '1rem' }}>
-                  Confirm Check-Out
-                </h3>
+      {/* Check-Out Confirmation Modal (Rendered via portal to prevent parent transforms/clipping) */}
+      {isCheckOutModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="attendance-modal-overlay checkout-modal-overlay"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isProcessingCheckout) {
+                setIsCheckOutModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="attendance-modal-container checkout-modal animate-fade-in"
+              style={{ maxWidth: '420px' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="attendance-modal-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <LogOut size={18} color="#0b3d2b" />
+                  <h3 className="attendance-modal-title" style={{ fontSize: '1rem' }}>
+                    Confirm Check-Out
+                  </h3>
+                </div>
+              </div>
+
+              <div className="attendance-modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
+                <p style={{ fontSize: '0.9rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
+                  Are you sure you want to <strong>Check Out</strong>?
+                </p>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '8px', lineHeight: 1.4 }}>
+                  This will record your authoritative check-out timestamp and <strong>lock attendance for the remainder of today</strong>.
+                </p>
+
+                <div className="modal-actions-footer" style={{ marginTop: '22px' }}>
+                  <button
+                    type="button"
+                    className="btn-modal-cancel"
+                    onClick={() => setIsCheckOutModalOpen(false)}
+                    disabled={isProcessingCheckout}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-modal-primary"
+                    onClick={handleConfirmCheckOut}
+                    disabled={isProcessingCheckout}
+                    style={{ backgroundColor: '#0b3d2b' }}
+                  >
+                    {isProcessingCheckout ? 'Recording...' : 'Confirm Check-Out'}
+                  </button>
+                </div>
               </div>
             </div>
+          </div>,
+          document.body
+        )}
 
-            <div className="attendance-modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
-              <p style={{ fontSize: '0.9rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
-                Are you sure you want to <strong>Check Out</strong>?
-              </p>
-              <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '8px', lineHeight: 1.4 }}>
-                This will record your authoritative check-out timestamp and <strong>lock attendance for the remainder of today</strong>.
-              </p>
-
-              <div className="modal-actions-footer" style={{ marginTop: '22px' }}>
-                <button
-                  type="button"
-                  className="btn-modal-cancel"
-                  onClick={() => setIsCheckOutModalOpen(false)}
-                  disabled={isProcessingCheckout}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-modal-primary"
-                  onClick={handleConfirmCheckOut}
-                  disabled={isProcessingCheckout}
-                  style={{ backgroundColor: '#0b3d2b' }}
-                >
-                  {isProcessingCheckout ? 'Recording...' : 'Confirm Check-Out'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Late Check-in Reason Modal (Section 4) */}
+      <LateCheckInModal
+        isOpen={isLateModalOpen}
+        onClose={() => setIsLateModalOpen(false)}
+        recordId={recordId}
+        employeeName={currentUser?.fullName || currentUser?.name || 'Employee'}
+        employeeId={currentUser?.employeeId || currentUser?.id || '--'}
+        attendanceDate={formattedDate}
+        checkInTime={checkInTime}
+        onSuccess={() => {
+          fetchTodayStatus();
+          setToastMessage('Late check-in reason recorded successfully');
+          setTimeout(() => setToastMessage(''), 4500);
+        }}
+      />
     </div>
   );
 }

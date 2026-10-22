@@ -27,7 +27,7 @@
                 android:type="radial"
                 android:centerX="0.65"
                 android:centerY="0.65"
-                android:gradientRadius="1.0"
+                android:gradientRadius="180dp"
                 android:startColor="#087F5B"
                 android:centerColor="#20A879"
                 android:endColor="#BFE8D8" />
@@ -74,7 +74,7 @@
                 android:type="radial"
                 android:centerX="0.45"
                 android:centerY="0.5"
-                android:gradientRadius="1.0"
+                android:gradientRadius="130dp"
                 android:startColor="#DCE8F5"
                 android:centerColor="#E8F0F8"
                 android:endColor="#F3F7FA" />
@@ -121,7 +121,7 @@
                 android:type="radial"
                 android:centerX="0.7"
                 android:centerY="0.35"
-                android:gradientRadius="1.0"
+                android:gradientRadius="185dp"
                 android:startColor="#D9E7F5"
                 android:centerColor="#E7F0F8"
                 android:endColor="#F4F8FB" />
@@ -148,7 +148,7 @@
                 android:type="radial"
                 android:centerX="0.35"
                 android:centerY="0.35"
-                android:gradientRadius="1.0"
+                android:gradientRadius="195dp"
                 android:startColor="#0B8064"
                 android:centerColor="#38A88A"
                 android:endColor="#BFDCD5" />

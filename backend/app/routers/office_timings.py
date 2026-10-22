@@ -94,6 +94,22 @@ def save_office_timing(
         }
         firestore_service.create_document("office_timings", update_payload)
 
+        # Also write to settings/officeTimings for Android mobile app
+        try:
+            from app.services.firestore_service import FirestoreService
+            FirestoreService.save("settings", "officeTimings", {
+                "id": "officeTimings",
+                "officeStartTime": payload.startTime,
+                "officeEndTime": payload.endTime,
+                "gracePeriodMinutes": payload.graceMinutes,
+                "startTime": payload.startTime,
+                "endTime": payload.endTime,
+                "graceMinutes": payload.graceMinutes,
+                "updated_at": now_iso,
+            })
+        except Exception:
+            pass
+
         # Record audit log
         firestore_service.create_document("audit_logs", {
             "actor_id": admin_user.id,

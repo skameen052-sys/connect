@@ -99,6 +99,7 @@ export const attendanceService = {
         'Location verification failed';
       const customErr = new Error(message);
       customErr.code = code;
+      customErr.status = error.response?.status;
       customErr.data = errData;
       throw customErr;
     }
@@ -155,13 +156,32 @@ export const attendanceService = {
   },
 
   /**
+   * Submit mandatory late check-in reason
+   */
+  async submitLateReason({ attendanceId, reason, date } = {}) {
+    try {
+      const response = await api.post('/api/attendance/late-reason', {
+        attendanceId,
+        reason: (reason || '').trim(),
+        date,
+      });
+      return response.data;
+    } catch (error) {
+      const msg = error.response?.data?.detail || error.response?.data?.message || error.message || 'Failed to submit late check-in reason.';
+      throw new Error(msg);
+    }
+  },
+
+  /**
    * Check out employee and lock daily attendance
    */
   async checkOut({ employeeId } = {}) {
     try {
-      const response = await api.post('/api/attendance/check-out', {
-        employeeId,
-      });
+      const payload = {};
+      if (employeeId) {
+        payload.employeeId = employeeId;
+      }
+      const response = await api.post('/api/attendance/check-out', payload);
       return response.data;
     } catch (error) {
       throw new Error(error.response?.data?.detail || error.response?.data?.message || 'Check-out failed');

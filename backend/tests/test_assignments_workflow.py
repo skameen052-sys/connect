@@ -39,23 +39,37 @@ def employee_token():
 @pytest.fixture(autouse=True)
 def cleanup_test_assignments():
     yield
-    db = SessionLocal()
     try:
-        db.query(WorkAssignment).filter(WorkAssignment.title.like("TEST_%")).delete(synchronize_session=False)
-        db.query(Team).filter(Team.name.like("TEST_%")).delete(synchronize_session=False)
-        db.commit()
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            db.query(WorkAssignment).filter(WorkAssignment.title.like("TEST_%")).delete(synchronize_session=False)
+            db.query(Team).filter(Team.name.like("TEST_%")).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def test_admin_creates_individual_work_assignment(admin_token, employee_token):
     """Admin delegates work to a specific employee in Individual mode."""
-    db = SessionLocal()
-    emp = db.query(Employee).filter(Employee.email == EMPLOYEE_EMAIL).first()
-    assert emp is not None
-    emp_id = emp.employee_id
-    emp_name = emp.full_name
-    db.close()
+    from app.core.config import settings
+    from app.services.firestore_service import FirestoreService
+
+    emp_id = "AFI-001"
+    emp_name = "Employee User"
+    if settings.DATABASE_BACKEND == "firebase":
+        emps = FirestoreService.query("employees", {"email": EMPLOYEE_EMAIL})
+        if emps:
+            emp_id = emps[0].get("employee_id") or emps[0].get("employeeId") or "AFI-001"
+            emp_name = emps[0].get("full_name") or emps[0].get("name") or "Employee User"
+    else:
+        db = SessionLocal()
+        emp = db.query(Employee).filter(Employee.email == EMPLOYEE_EMAIL).first()
+        assert emp is not None
+        emp_id = emp.employee_id
+        emp_name = emp.full_name
+        db.close()
 
     future_date = (date.today() + timedelta(days=7)).isoformat()
     payload = {

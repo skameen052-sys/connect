@@ -14,25 +14,32 @@ service firebase.storage {
       );
     }
 
-    // Attendance Verification Photographs
+    // 1. Attendance Verification Photographs (Web path structure)
     match /attendance/{employeeId}/{recordId}/{fileName} {
-      // Employees can read their own photos; Admins can review all attendance photos
-      allow read: if isAuthenticated() && (
-        request.auth.uid == employeeId ||
-        request.auth.token.employee_id == employeeId ||
-        isAdmin()
-      );
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
 
-      // Upload allowed only for the specific authenticated employee or admin, restricted to images <= 10MB
-      allow write: if isAuthenticated() && (
-        request.auth.uid == employeeId ||
-        request.auth.token.employee_id == employeeId ||
-        isAdmin()
-      ) &&
-      request.resource.size <= 10 * 1024 * 1024 &&
-      request.resource.contentType.matches('image/.*');
+    // 2. Attendance Verification Photographs (Android mobile path: attendancePhotos/{uid}/{date}.jpg)
+    match /attendancePhotos/{uid}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+        (request.auth.uid == uid || isAdmin()) &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
 
-      // Only administrators can delete attendance verification photographs
+    // 3. Employee Profile Photographs (Android & Web: profilePhotos/{uid}.jpg)
+    match /profilePhotos/{uid}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+        (request.auth.uid == uid || isAdmin()) &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
       allow delete: if isAdmin();
     }
 

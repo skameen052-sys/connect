@@ -196,60 +196,39 @@ public class EmployeeDashboardActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
-        setContentView(R.layout.employee_dashboard);
+        try {
+            setContentView(R.layout.employee_dashboard);
 
+            auth = FirebaseAuth.getInstance();
+            firestore = FirebaseFirestore.getInstance();
+            storage = FirebaseStorage.getInstance();
+            currentUser = auth.getCurrentUser();
 
-        // ========================================================
-        // FIREBASE
-        // ========================================================
+            if (currentUser == null) {
+                Toast.makeText(this, "Session expired. Please log in again.", Toast.LENGTH_SHORT).show();
+                startActivity(new Intent(EmployeeDashboardActivity.this, MainActivity.class));
+                finish();
+                return;
+            }
 
-        auth = FirebaseAuth.getInstance();
-        firestore = FirebaseFirestore.getInstance();
-        storage = FirebaseStorage.getInstance();
-        currentUser = auth.getCurrentUser();
+            fusedLocationClient =
+                    LocationServices.getFusedLocationProviderClient(this);
 
+            initializeViews();
+            setupNavigationDrawer();
+            setupClickListeners();
 
-        // ========================================================
-        // LOCATION
-        // ========================================================
-
-        fusedLocationClient =
-                LocationServices.getFusedLocationProviderClient(this);
-
-
-        // ========================================================
-        // INITIALIZE VIEWS
-        // ========================================================
-
-        initializeViews();
-
-
-        // ========================================================
-        // SETUP DRAWER
-        // ========================================================
-
-        setupNavigationDrawer();
-
-
-        // ========================================================
-        // CLICK LISTENERS
-        // ========================================================
-
-        setupClickListeners();
-
-
-        // ========================================================
-        // LOAD DATA
-        // ========================================================
-
-        loadEmployeeInformation();
-        loadTodayAttendance();
-        loadThisMonthSummary();
-        loadOfficeTimings();
-        startClock();
+            loadEmployeeInformation();
+            loadTodayAttendance();
+            loadThisMonthSummary();
+            loadOfficeTimings();
+            startClock();
+        } catch (Exception e) {
+            android.util.Log.e("EmployeeDashboard", "Error during dashboard onCreate", e);
+            Toast.makeText(this, "Could not initialize dashboard. Please try again.", Toast.LENGTH_LONG).show();
+        }
     }
 
 
@@ -684,14 +663,18 @@ public class EmployeeDashboardActivity extends AppCompatActivity {
     // ============================================================
 
     private void openAnnouncements() {
+        try {
+            Intent intent =
+                    new Intent(
+                            EmployeeDashboardActivity.this,
+                            EmployeeAnnouncementsActivity.class
+                    );
 
-        Intent intent =
-                new Intent(
-                        EmployeeDashboardActivity.this,
-                        EmployeeAnnouncementsActivity.class
-                );
-
-        startActivity(intent);
+            startActivity(intent);
+        } catch (Exception e) {
+            android.util.Log.e("EmployeeDashboard", "Could not start EmployeeAnnouncementsActivity", e);
+            Toast.makeText(this, "Announcements screen is temporarily unavailable.", Toast.LENGTH_SHORT).show();
+        }
     }
 
 
@@ -2118,12 +2101,21 @@ public class EmployeeDashboardActivity extends AppCompatActivity {
                     }
 
 
-                    Timestamp checkIn =
-                            document.getTimestamp("checkIn");
+                    Timestamp checkIn = null;
+                    Timestamp checkOut = null;
+                    try {
+                        Object cIn = document.get("checkIn");
+                        if (cIn instanceof Timestamp) {
+                            checkIn = (Timestamp) cIn;
+                        }
+                    } catch (Exception ignored) {}
 
-
-                    Timestamp checkOut =
-                            document.getTimestamp("checkOut");
+                    try {
+                        Object cOut = document.get("checkOut");
+                        if (cOut instanceof Timestamp) {
+                            checkOut = (Timestamp) cOut;
+                        }
+                    } catch (Exception ignored) {}
 
 
                     String workMode =
@@ -2274,18 +2266,14 @@ public class EmployeeDashboardActivity extends AppCompatActivity {
 
 
                     if (employeeDocument.exists()) {
-
-                        Timestamp createdAt =
-                                employeeDocument.getTimestamp(
-                                        "createdAt"
-                                );
-
-
-                        if (createdAt != null) {
-
-                            employeeStartDate =
-                                    createdAt.toDate();
-                        }
+                        try {
+                            Object rawCreated = employeeDocument.get("createdAt");
+                            if (rawCreated instanceof Timestamp) {
+                                employeeStartDate = ((Timestamp) rawCreated).toDate();
+                            } else if (rawCreated instanceof Date) {
+                                employeeStartDate = (Date) rawCreated;
+                            }
+                        } catch (Exception ignored) {}
                     }
 
 

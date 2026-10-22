@@ -140,31 +140,26 @@ public class EmployeeWorkAssignmentsActivity extends AppCompatActivity {
                     Collections.sort(
                             assignments,
                             (a, b) -> {
+                                Timestamp ta = null;
+                                Timestamp tb = null;
+                                try {
+                                    Object oa = a.get("assignedAt");
+                                    if (oa instanceof Timestamp) ta = (Timestamp) oa;
+                                } catch (Exception ignored) {}
+                                try {
+                                    Object ob = b.get("assignedAt");
+                                    if (ob instanceof Timestamp) tb = (Timestamp) ob;
+                                } catch (Exception ignored) {}
 
-                                Timestamp ta =
-                                        a.getTimestamp(
-                                                "assignedAt"
-                                        );
-
-                                Timestamp tb =
-                                        b.getTimestamp(
-                                                "assignedAt"
-                                        );
-
-                                if (ta == null
-                                        && tb == null) {
-
+                                if (ta == null && tb == null) {
                                     return 0;
                                 }
-
                                 if (ta == null) {
                                     return 1;
                                 }
-
                                 if (tb == null) {
                                     return -1;
                                 }
-
                                 return tb.compareTo(ta);
                             }
                     );

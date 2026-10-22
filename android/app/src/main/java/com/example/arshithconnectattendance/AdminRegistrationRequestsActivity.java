@@ -24,8 +24,10 @@ import com.google.firebase.firestore.QueryDocumentSnapshot;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class AdminRegistrationRequestsActivity extends ComponentActivity {
 
@@ -128,14 +130,24 @@ public class AdminRegistrationRequestsActivity extends ComponentActivity {
                     requestsContainer.removeAllViews();
 
                     int pendingCount = 0;
+                    Set<String> seenIdentifiers = new HashSet<>();
 
                     for (QueryDocumentSnapshot document : snapshot) {
                         String status = document.getString("status");
 
                         if (status != null
                                 && "pending".equalsIgnoreCase(status.trim())) {
-                            addRequestCard(document);
-                            pendingCount++;
+                            String email = document.getString("email");
+                            String empId = document.getString("employeeId");
+                            String dedupeKey = (email != null && !email.trim().isEmpty())
+                                    ? email.trim().toLowerCase()
+                                    : (empId != null && !empId.trim().isEmpty() ? empId.trim() : document.getId());
+
+                            if (!seenIdentifiers.contains(dedupeKey)) {
+                                seenIdentifiers.add(dedupeKey);
+                                addRequestCard(document);
+                                pendingCount++;
+                            }
                         }
                     }
 
@@ -335,6 +347,11 @@ public class AdminRegistrationRequestsActivity extends ComponentActivity {
                                     return;
                                 }
 
+                                boolean isApproved = "approved".equalsIgnoreCase(newStatus);
+                                String email = employeeDocument.getString("email");
+                                String rawUid = employeeDocument.getString("uid");
+                                String targetUid = (rawUid != null && !rawUid.trim().isEmpty()) ? rawUid.trim() : employeeUid;
+
                                 Map<String, Object> updates = new HashMap<>();
                                 updates.put("status", newStatus);
                                 updates.put(
@@ -350,6 +367,49 @@ public class AdminRegistrationRequestsActivity extends ComponentActivity {
                                         .document(employeeUid)
                                         .update(updates)
                                         .addOnSuccessListener(unused -> {
+                                            // Synchronize users collection for website & backend authentication
+                                            Map<String, Object> userUpdates = new HashMap<>();
+                                            userUpdates.put("approval_status", isApproved ? "APPROVED" : "REJECTED");
+                                            userUpdates.put("is_active", isApproved);
+                                            userUpdates.put("status", isApproved ? "Active" : "Rejected");
+                                            userUpdates.put("reviewedAt", FieldValue.serverTimestamp());
+                                            userUpdates.put("reviewedBy", currentAdmin.getUid());
+
+                                            if (targetUid != null && !targetUid.isEmpty()) {
+                                                firestore.collection("users").document(targetUid).update(userUpdates);
+                                            }
+
+                                            if (email != null && !email.trim().isEmpty()) {
+                                                String cleanEmail = email.trim().toLowerCase();
+                                                firestore.collection("users").whereEqualTo("email", cleanEmail).get()
+                                                        .addOnSuccessListener(userDocs -> {
+                                                            for (DocumentSnapshot doc : userDocs) {
+                                                                doc.getReference().update(userUpdates);
+                                                            }
+                                                        });
+
+                                                // Update registration_requests collection
+                                                Map<String, Object> reqUpdates = new HashMap<>();
+                                                reqUpdates.put("status", isApproved ? "Approved" : "Rejected");
+                                                reqUpdates.put("reviewed_at", FieldValue.serverTimestamp());
+                                                firestore.collection("registration_requests").whereEqualTo("email", cleanEmail).get()
+                                                        .addOnSuccessListener(reqDocs -> {
+                                                            for (DocumentSnapshot doc : reqDocs) {
+                                                                doc.getReference().update(reqUpdates);
+                                                            }
+                                                        });
+
+                                                // Update duplicate employee documents if any
+                                                firestore.collection("employees").whereEqualTo("email", cleanEmail).get()
+                                                        .addOnSuccessListener(empDocs -> {
+                                                            for (DocumentSnapshot doc : empDocs) {
+                                                                if (!doc.getId().equals(employeeUid)) {
+                                                                    doc.getReference().update(updates);
+                                                                }
+                                                            }
+                                                        });
+                                            }
+
                                             Toast.makeText(
                                                     this,
                                                     "Registration "

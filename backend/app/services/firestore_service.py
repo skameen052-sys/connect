@@ -137,8 +137,8 @@ class FirestoreService:
             "attendances": "attendance",
             "notification": "notifications",
             "notifications": "notifications",
-            "announcement": "notifications",
-            "announcements": "notifications",
+            "announcement": "announcements",
+            "announcements": "announcements",
             "office_timing": "officeSettings",
             "office_timings": "officeSettings",
             "office_config": "officeSettings",
@@ -154,10 +154,11 @@ class FirestoreService:
             "meetings": "meetings",
             "team": "teams",
             "teams": "teams",
-            "assignment": "work_assignments",
-            "assignments": "work_assignments",
-            "work_assignment": "work_assignments",
-            "work_assignments": "work_assignments",
+            "assignment": "workAssignments",
+            "assignments": "workAssignments",
+            "work_assignment": "workAssignments",
+            "work_assignments": "workAssignments",
+            "workAssignments": "workAssignments",
             "work_update": "work_updates",
             "work_updates": "work_updates",
             "registration_request": "registration_requests",
@@ -166,6 +167,134 @@ class FirestoreService:
             "audit_logs": "audit_logs",
         }
         return mapping.get(entity.lower(), entity)
+
+    @classmethod
+    def collection_group(cls, group_id: str, filters: Optional[List[tuple]] = None) -> List[Dict[str, Any]]:
+        """Stream documents from all subcollections matching group_id across all parent documents."""
+        fs = get_firestore_client()
+        if is_firebase_live() and fs is not None:
+            try:
+                cg = fs.collection_group(group_id)
+                if filters:
+                    for f in filters:
+                        if len(f) == 3:
+                            cg = cg.where(f[0], f[1], f[2])
+                results = []
+                for doc in cg.stream():
+                    d = doc.to_dict()
+                    d["_firestore_id"] = doc.id
+                    d["_doc_path"] = doc.reference.path
+                    if doc.reference.parent and doc.reference.parent.parent:
+                        d["_parent_id"] = doc.reference.parent.parent.id
+                    if "id" not in d:
+                        d["id"] = doc.id
+                    results.append(d)
+                return results
+            except Exception as e:
+                logger.error(f"Firestore collection_group error on '{group_id}': {e}")
+
+        # Local fallback
+        db = _load_local_db()
+        results = []
+        for k in [group_id, f"cg_{group_id}"]:
+            if k in db:
+                for item in db[k]:
+                    matches = True
+                    if filters:
+                        for f in filters:
+                            if len(f) == 3 and f[1] == "==":
+                                if item.get(f[0]) != f[2]:
+                                    matches = False
+                                    break
+                    if matches:
+                        results.append(item)
+        return results
+
+    @classmethod
+    def save_subdocument(cls, collection: str, doc_id: Any, subcollection: str, subdoc_id: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save a document into a subcollection (e.g., attendance/{uid}/records/{date} or leaves/{uid}/requests/{id})."""
+        col_name = cls.get_collection_name(collection)
+        str_doc_id = str(doc_id)
+        str_subdoc_id = str(subdoc_id)
+        serialized = _serialize_dict(data)
+        serialized["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        fs = get_firestore_client()
+        if is_firebase_live() and fs is not None:
+            try:
+                fs.collection(col_name).document(str_doc_id).collection(subcollection).document(str_subdoc_id).set(serialized, merge=True)
+                serialized["_firestore_id"] = str_subdoc_id
+            except Exception as e:
+                logger.error(f"Firestore save_subdocument error on '{col_name}/{str_doc_id}/{subcollection}/{str_subdoc_id}': {e}")
+
+        # Local fallback
+        db = _load_local_db()
+        cg_key = f"cg_{subcollection}"
+        if cg_key not in db:
+            db[cg_key] = []
+        found = False
+        for i, item in enumerate(db[cg_key]):
+            if str(item.get("id")) == str_subdoc_id or (item.get("date") == serialized.get("date") and item.get("employeeId") == str_doc_id):
+                db[cg_key][i] = {**item, **serialized}
+                found = True
+                break
+        if not found:
+            if "id" not in serialized:
+                serialized["id"] = str_subdoc_id
+            db[cg_key].append(serialized)
+        _save_local_db(db)
+        return serialized
+
+    @classmethod
+    def update_subdocument(cls, collection: str, doc_id: Any, subcollection: str, subdoc_id: Any, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update fields on a subcollection document."""
+        col_name = cls.get_collection_name(collection)
+        str_doc_id = str(doc_id)
+        str_subdoc_id = str(subdoc_id)
+        serialized = _serialize_dict(updates)
+        serialized["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        fs = get_firestore_client()
+        if is_firebase_live() and fs is not None:
+            try:
+                fs.collection(col_name).document(str_doc_id).collection(subcollection).document(str_subdoc_id).update(serialized)
+            except Exception as e:
+                logger.error(f"Firestore update_subdocument error on '{col_name}/{str_doc_id}/{subcollection}/{str_subdoc_id}': {e}")
+
+        db = _load_local_db()
+        cg_key = f"cg_{subcollection}"
+        if cg_key in db:
+            for i, item in enumerate(db[cg_key]):
+                if str(item.get("id")) == str_subdoc_id or (item.get("date") == serialized.get("date") and item.get("employeeId") == str_doc_id):
+                    db[cg_key][i].update(serialized)
+                    break
+            _save_local_db(db)
+        return serialized
+
+    @classmethod
+    def delete_subdocument(cls, collection: str, doc_id: Any, subcollection: str, subdoc_id: Any) -> bool:
+        """Delete a subcollection document."""
+        col_name = cls.get_collection_name(collection)
+        str_doc_id = str(doc_id)
+        str_subdoc_id = str(subdoc_id)
+
+        fs = get_firestore_client()
+        if is_firebase_live() and fs is not None:
+            try:
+                fs.collection(col_name).document(str_doc_id).collection(subcollection).document(str_subdoc_id).delete()
+            except Exception as e:
+                logger.error(f"Firestore delete_subdocument error on '{col_name}/{str_doc_id}/{subcollection}/{str_subdoc_id}': {e}")
+
+        db = _load_local_db()
+        cg_key = f"cg_{subcollection}"
+        if cg_key in db:
+            db[cg_key] = [
+                item for item in db[cg_key]
+                if not (str(item.get("id")) == str_subdoc_id or (item.get("date") == str_subdoc_id and item.get("employeeId") == str_doc_id))
+            ]
+            _save_local_db(db)
+            return True
+        return False
 
     @classmethod
     def list_all(cls, entity: str) -> List[Dict[str, Any]]:
@@ -196,10 +325,10 @@ class FirestoreService:
 
     @classmethod
     def get_by_id(cls, entity: str, doc_id: Any) -> Optional[Dict[str, Any]]:
-        """Retrieve single document by ID."""
+        """Retrieve single document by ID, checking document ID and secondary fields."""
         col_name = cls.get_collection_name(entity)
         fs = get_firestore_client()
-        str_id = str(doc_id)
+        str_id = str(doc_id).strip()
 
         if is_firebase_live() and fs is not None:
             try:
@@ -210,6 +339,43 @@ class FirestoreService:
                     if "id" not in d:
                         d["id"] = doc_ref.id
                     return d
+
+                # Secondary field matching if document ID did not match directly
+                fields_to_check = [
+                    "employeeId", "employee_id", "email", "uid",
+                    "request_code", "leave_code", "holiday_code",
+                    "meeting_code", "announcement_code", "task_code", "update_code"
+                ]
+                for field in fields_to_check:
+                    val = str_id.lower() if field == "email" else str_id
+                    docs = list(fs.collection(col_name).where(field, "==", val).limit(1).stream())
+                    if not docs and field in ["employeeId", "employee_id"]:
+                        docs = list(fs.collection(col_name).where(field, "==", str_id.upper()).limit(1).stream())
+                    if docs:
+                        d = docs[0].to_dict()
+                        d["_firestore_id"] = docs[0].id
+                        if "id" not in d:
+                            d["id"] = docs[0].id
+                        return d
+
+                # If searching leaves collection and not found in top-level, check requests subcollection
+                if col_name == "leaves":
+                    for c_doc in fs.collection_group("requests").stream():
+                        c_dict = c_doc.to_dict()
+                        if (
+                            c_doc.id == str_id
+                            or str(c_dict.get("id")) == str_id
+                            or str(c_dict.get("leave_code")) == str_id
+                            or str(c_dict.get("leaveCode")) == str_id
+                            or str(c_dict.get("_firestore_id")) == str_id
+                        ):
+                            c_dict["_firestore_id"] = c_doc.id
+                            c_dict["_doc_path"] = c_doc.reference.path
+                            if c_doc.reference.parent and c_doc.reference.parent.parent:
+                                c_dict["_parent_id"] = c_doc.reference.parent.parent.id
+                            if "id" not in c_dict:
+                                c_dict["id"] = c_doc.id
+                            return c_dict
             except Exception as e:
                 logger.error(f"Firestore get_by_id error on '{col_name}/{str_id}': {e}")
 
@@ -218,8 +384,10 @@ class FirestoreService:
         for item in items:
             if (
                 str(item.get("id")) == str_id
-                or str(item.get("employee_id")) == str_id
-                or str(item.get("employeeId")) == str_id
+                or str(item.get("uid")) == str_id
+                or str(item.get("_firestore_id")) == str_id
+                or str(item.get("employee_id")).upper() == str_id.upper()
+                or str(item.get("employeeId")).upper() == str_id.upper()
                 or str(item.get("email", "")).lower() == str_id.lower()
                 or str(item.get("request_code")) == str_id
                 or str(item.get("leave_code")) == str_id
@@ -230,6 +398,18 @@ class FirestoreService:
                 or str(item.get("update_code")) == str_id
             ):
                 return item
+
+        if col_name == "leaves":
+            cg_items = cls.collection_group("requests")
+            for item in cg_items:
+                if (
+                    str(item.get("id")) == str_id
+                    or str(item.get("_firestore_id")) == str_id
+                    or str(item.get("leave_code")) == str_id
+                    or str(item.get("leaveCode")) == str_id
+                ):
+                    return dict(item)
+
         return None
 
     @classmethod
@@ -406,7 +586,7 @@ class FirestoreServiceWrapper:
 
     @staticmethod
     def get_document(collection: str, doc_id: Any) -> Optional[Dict[str, Any]]:
-        return FirestoreService.get(collection, str(doc_id))
+        return FirestoreService.get_by_id(collection, str(doc_id))
 
     @staticmethod
     def create_document(collection: str, data: Dict[str, Any]) -> str:
