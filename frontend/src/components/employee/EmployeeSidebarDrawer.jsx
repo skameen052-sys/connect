@@ -10,6 +10,10 @@ import {
   Home,
   X,
   FileClock,
+  Receipt,
+  Coins,
+  UserMinus,
+  Award,
 } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
 
@@ -59,16 +63,20 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
     onClose();
   };
 
-  // Canonical employee nav items in the exact order of Screenshot 3
+  // Canonical employee nav items with HRMS self-service extensions
   const navItems = [
-    { label: 'Profile', path: '/employee/profile', icon: User },
-    { label: 'Announcements', path: '/employee/announcements', icon: Bell },
-    { label: 'Meetings', path: '/employee/meetings', icon: Calendar },
-    { label: 'Work Assignments', path: '/employee/assignments', icon: Briefcase },
-    { label: 'Leave Management', path: '/employee/leaves', icon: FileText },
-    { label: 'Work Update', path: '/employee/updates', icon: FileClock },
     { label: 'Dashboard', path: '/employee/dashboard', icon: Home },
     { label: 'Attendance', path: '/employee/attendance', icon: Clock },
+    { label: 'Leave Management', path: '/employee/leaves', icon: FileText },
+    { label: 'My Payslips', path: '/employee/payslips', icon: Receipt },
+    { label: 'My Loans & Advances', path: '/employee/loans', icon: Coins },
+    { label: 'My Performance', path: '/employee/performance', icon: Award },
+    { label: 'Resignation & Settlement', path: '/employee/resignation', icon: UserMinus },
+    { label: 'Work Assignments', path: '/employee/assignments', icon: Briefcase },
+    { label: 'Work Update', path: '/employee/updates', icon: FileClock },
+    { label: 'Meetings', path: '/employee/meetings', icon: Calendar },
+    { label: 'Announcements', path: '/employee/announcements', icon: Bell },
+    { label: 'Profile', path: '/employee/profile', icon: User },
   ];
 
   return (

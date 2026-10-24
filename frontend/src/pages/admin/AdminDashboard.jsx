@@ -446,6 +446,218 @@ export default function AdminDashboard() {
         </div>
       </section>
 
+      {/* Section: Payroll & Finance */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#0b3d2b', marginBottom: '12px' }}>
+          Payroll & Finance
+        </h2>
+
+        {/* 1. Payroll Engine */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/payroll')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/payroll'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#047857' }}>
+              P
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Payroll Engine</h3>
+              <p className="admin-action-card-desc">Calculate monthly salary, loss of pay & automated statutory deductions</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 2. Salary Structures */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/salary-structures')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/salary-structures'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#0284c7' }}>
+              S
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Salary Structures</h3>
+              <p className="admin-action-card-desc">Configure base salary, HRA, allowances, PF/ESI & deductions</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 3. Payslip Generation */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/payslips')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/payslips'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#0d9488' }}>
+              G
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Payslip Generation</h3>
+              <p className="admin-action-card-desc">Generate, preview and download official branded monthly PDF payslips</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 4. Salary Payments */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/payments')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/payments'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#16a34a' }}>
+              B
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Salary Payments</h3>
+              <p className="admin-action-card-desc">Export bank batch payment CSV (NEFT/RTGS) and record UTR confirmations</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 5. Employee Loans */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/loans')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/loans'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#ca8a04' }}>
+              L
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Employee Loans</h3>
+              <p className="admin-action-card-desc">Manage loan applications, approvals and monthly payroll EMI deductions</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+      </section>
+
+      {/* Section: HR Operations & Governance */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#0b3d2b', marginBottom: '12px' }}>
+          HR Operations & Governance
+        </h2>
+
+        {/* 1. Departments & Designations */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/departments')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/departments'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#7c3aed' }}>
+              D
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Departments & Designations</h3>
+              <p className="admin-action-card-desc">Manage organizational hierarchy, department codes and job titles</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 2. Performance Appraisals */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/performance')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/performance'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#2563eb' }}>
+              A
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Performance Appraisals</h3>
+              <p className="admin-action-card-desc">Track review cycles, employee KPI ratings and increment recommendations</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 3. Resignation & Settlement */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/separation')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/separation'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#dc2626' }}>
+              R
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Resignation & Settlement</h3>
+              <p className="admin-action-card-desc">Manage employee exits, notice periods & Full-and-Final (FnF) settlements</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+
+        {/* 4. Payroll & HR Settings */}
+        <div
+          className="admin-action-card"
+          onClick={() => navigate('/admin/settings')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') navigate('/admin/settings'); }}
+        >
+          <div className="admin-action-card-left">
+            <div className="admin-action-avatar" style={{ backgroundColor: '#475569' }}>
+              S
+            </div>
+            <div className="admin-action-card-info">
+              <h3 className="admin-action-card-title">Payroll & HR Settings</h3>
+              <p className="admin-action-card-desc">Configure company profiles, daily salary divisor, cutoff days & statutory rules</p>
+            </div>
+          </div>
+          <div className="admin-action-card-chevron">
+            <ChevronRight size={20} />
+          </div>
+        </div>
+      </section>
+
       {/* Prominent Red Logout Button matching Screenshot 4 */}
       <section style={{ marginTop: '16px' }}>
         <button

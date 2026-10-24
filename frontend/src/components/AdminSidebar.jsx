@@ -33,21 +33,45 @@ export default function AdminSidebar({ onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const navItems = [
-    { label: 'Dashboard', path: '/admin/dashboard', aliases: ['/admin', '/admin/dashboard'] },
-    { label: 'Attendance', path: '/admin/attendance', aliases: ['/admin/attendance'] },
-    { label: 'Leave Management', path: '/admin/leaves', aliases: ['/admin/leaves', '/admin/leave-management'] },
-    { label: 'Holiday Management', path: '/admin/holidays', aliases: ['/admin/holidays', '/admin/holiday-management'] },
-    { label: 'Meeting Management', path: '/admin/meetings', aliases: ['/admin/meetings', '/admin/meeting-management'] },
-    { label: 'Announcements', path: '/admin/announcements', aliases: ['/admin/announcements'] },
-    { label: 'Employees', path: '/admin/employees', aliases: ['/admin/employees'] },
-    { label: 'Employee List', path: '/admin/employees/list', aliases: ['/admin/employees/list', '/admin/employee-list'] },
-    { label: 'Teams', path: '/admin/teams', aliases: ['/admin/teams'] },
-    { label: 'Work Assignments', path: '/admin/assignments', aliases: ['/admin/assignments', '/admin/work-assignments'] },
-    { label: 'Work Updates', path: '/admin/updates', aliases: ['/admin/updates', '/admin/work-updates'] },
-    { label: 'Registration Requests', path: '/admin/registration-requests', aliases: ['/admin/registration-requests'] },
-    { label: 'Office Timings', path: '/admin/office-timings', aliases: ['/admin/office-timings'] },
-    { label: 'Attendance Reports', path: '/admin/reports', aliases: ['/admin/reports', '/admin/attendance-reports'] },
+  const navSections = [
+    {
+      title: 'Core Operations',
+      items: [
+        { label: 'Dashboard', path: '/admin/dashboard', aliases: ['/admin', '/admin/dashboard'] },
+        { label: 'Attendance', path: '/admin/attendance', aliases: ['/admin/attendance'] },
+        { label: 'Leave Management', path: '/admin/leaves', aliases: ['/admin/leaves', '/admin/leave-management'] },
+        { label: 'Holiday Management', path: '/admin/holidays', aliases: ['/admin/holidays', '/admin/holiday-management'] },
+        { label: 'Meeting Management', path: '/admin/meetings', aliases: ['/admin/meetings', '/admin/meeting-management'] },
+        { label: 'Announcements', path: '/admin/announcements', aliases: ['/admin/announcements'] },
+        { label: 'Employees', path: '/admin/employees', aliases: ['/admin/employees'] },
+        { label: 'Employee List', path: '/admin/employees/list', aliases: ['/admin/employees/list', '/admin/employee-list'] },
+        { label: 'Teams', path: '/admin/teams', aliases: ['/admin/teams'] },
+        { label: 'Work Assignments', path: '/admin/assignments', aliases: ['/admin/assignments', '/admin/work-assignments'] },
+        { label: 'Work Updates', path: '/admin/updates', aliases: ['/admin/updates', '/admin/work-updates'] },
+        { label: 'Registration Requests', path: '/admin/registration-requests', aliases: ['/admin/registration-requests'] },
+        { label: 'Office Timings', path: '/admin/office-timings', aliases: ['/admin/office-timings'] },
+        { label: 'Attendance Reports', path: '/admin/reports', aliases: ['/admin/reports', '/admin/attendance-reports'] },
+      ],
+    },
+    {
+      title: 'Payroll & Finance',
+      items: [
+        { label: 'Payroll Engine', path: '/admin/payroll', aliases: ['/admin/payroll'] },
+        { label: 'Salary Structures', path: '/admin/salary-structures', aliases: ['/admin/salary-structures'] },
+        { label: 'Payslip Generation', path: '/admin/payslips', aliases: ['/admin/payslips'] },
+        { label: 'Salary Payments', path: '/admin/payments', aliases: ['/admin/payments'] },
+        { label: 'Employee Loans', path: '/admin/loans', aliases: ['/admin/loans'] },
+      ],
+    },
+    {
+      title: 'HR Operations & Governance',
+      items: [
+        { label: 'Departments & Designations', path: '/admin/departments', aliases: ['/admin/departments'] },
+        { label: 'Performance Appraisals', path: '/admin/performance', aliases: ['/admin/performance'] },
+        { label: 'Resignation & Settlement', path: '/admin/separation', aliases: ['/admin/separation'] },
+        { label: 'Payroll & HR Settings', path: '/admin/settings', aliases: ['/admin/settings'] },
+      ],
+    },
   ];
 
   const handleSelectRoute = (path) => {
@@ -88,25 +112,41 @@ export default function AdminSidebar({ onClose }) {
         </div>
       </div>
 
-      {/* Pure White Drawer Body with all 14 Navigation Items and Smooth Independent Internal Scrolling */}
-      <nav className="admin-drawer-menu admin-sidebar-nav" aria-label="Administrator Navigation Links">
-        {navItems.map((item, idx) => {
-          const isActive =
-            item.aliases.some((alias) => location.pathname === alias) ||
-            location.pathname === item.path;
-
-          return (
-            <button
-              key={idx}
-              type="button"
-              className={`admin-drawer-item ${isActive ? 'active' : ''}`}
-              onClick={() => handleSelectRoute(item.path)}
-              aria-current={isActive ? 'page' : undefined}
+      {/* Pure White Drawer Body with Navigation Sections and Smooth Independent Internal Scrolling */}
+      <nav className="admin-drawer-menu admin-sidebar-nav" aria-label="Administrator Navigation Links" style={{ paddingBottom: '32px' }}>
+        {navSections.map((section, sIdx) => (
+          <div key={sIdx} className="admin-drawer-section" style={{ marginBottom: '14px' }}>
+            <div
+              style={{
+                padding: '10px 20px 4px 20px',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                color: '#64748b',
+              }}
             >
-              <span className="admin-drawer-item-label">{item.label}</span>
-            </button>
-          );
-        })}
+              {section.title}
+            </div>
+            {section.items.map((item, idx) => {
+              const isActive =
+                item.aliases.some((alias) => location.pathname === alias) ||
+                location.pathname === item.path;
+
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`admin-drawer-item ${isActive ? 'active' : ''}`}
+                  onClick={() => handleSelectRoute(item.path)}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <span className="admin-drawer-item-label">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       {/* Note: Sign Out / Logout item is intentionally excluded from the sidebar as required */}
     </div>

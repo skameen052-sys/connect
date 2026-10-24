@@ -42,6 +42,25 @@ import AdminOfficeTimings from '../pages/admin/AdminOfficeTimings';
 import AdminAttendanceReports from '../pages/admin/AdminAttendanceReports';
 import AdminManagement from '../pages/admin/AdminManagement';
 
+// Complete HRMS Modules (Payroll, Finance, HR Operations)
+import AdminPayroll from '../pages/admin/AdminPayroll';
+import AdminSalaryStructures from '../pages/admin/AdminSalaryStructures';
+import AdminPayslips from '../pages/admin/AdminPayslips';
+import AdminPayments from '../pages/admin/AdminPayments';
+import AdminLoans from '../pages/admin/AdminLoans';
+import AdminSeparation from '../pages/admin/AdminSeparation';
+import AdminRecruitment from '../pages/admin/AdminRecruitment';
+import AdminPerformance from '../pages/admin/AdminPerformance';
+import AdminDepartments from '../pages/admin/AdminDepartments';
+import AdminAuditLogs from '../pages/admin/AdminAuditLogs';
+import AdminSettings from '../pages/admin/AdminSettings';
+
+// Employee Self-Service HRMS Extensions
+import EmployeePayslips from '../pages/employee/EmployeePayslips';
+import EmployeeLoans from '../pages/employee/EmployeeLoans';
+import EmployeePerformance from '../pages/employee/EmployeePerformance';
+import EmployeeResignation from '../pages/employee/EmployeeResignation';
+
 // 404 Not Found
 import NotFound from '../pages/NotFound';
 
@@ -73,6 +92,11 @@ export default function AppRoutes() {
           <Route path="profile" element={<EmployeeProfile />} />
           <Route path="assignments" element={<EmployeeWorkAssignments />} />
           <Route path="updates" element={<EmployeeWorkUpdates />} />
+          {/* Employee Self-Service HRMS Extensions */}
+          <Route path="payslips" element={<EmployeePayslips />} />
+          <Route path="loans" element={<EmployeeLoans />} />
+          <Route path="performance" element={<EmployeePerformance />} />
+          <Route path="resignation" element={<EmployeeResignation />} />
         </Route>
       </Route>
 
@@ -102,6 +126,19 @@ export default function AppRoutes() {
           <Route path="reports" element={<AdminAttendanceReports />} />
           <Route path="attendance-reports" element={<AdminAttendanceReports />} />
           <Route path="management" element={<AdminManagement />} />
+          
+          {/* Complete HRMS Routes */}
+          <Route path="payroll" element={<AdminPayroll />} />
+          <Route path="salary-structures" element={<AdminSalaryStructures />} />
+          <Route path="payslips" element={<AdminPayslips />} />
+          <Route path="payments" element={<AdminPayments />} />
+          <Route path="loans" element={<AdminLoans />} />
+          <Route path="separation" element={<AdminSeparation />} />
+          <Route path="recruitment" element={<AdminRecruitment />} />
+          <Route path="performance" element={<AdminPerformance />} />
+          <Route path="departments" element={<AdminDepartments />} />
+          <Route path="audit" element={<AdminAuditLogs />} />
+          <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Route>
 

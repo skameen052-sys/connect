@@ -55,3 +55,107 @@ def init_firestore_seed():
             "created_at": now_iso,
             "updated_at": now_iso,
         })
+
+    # 3. Seed canonical PDF Employee (EMP-1001) and salary structure if missing
+    from app.services.firestore_service import FirestoreService
+    emp_1001 = FirestoreService.query("employees", {"employee_id": "EMP-1001"})
+    if not emp_1001:
+        logger.info("Seeding canonical PDF benchmark employee EMP-1001...")
+        FirestoreService.create("employees", {
+            "employee_id": "EMP-1001",
+            "name": "Arshith Developer",
+            "full_name": "Arshith Developer",
+            "email": "employee@arshith.com",
+            "phone": "+91 98765 43210",
+            "department": "Engineering",
+            "designation": "Full-Stack Software Engineer",
+            "joining_date": "2024-01-15",
+            "employment_type": "Full-time",
+            "status": "Active",
+            "location": "HQ Office",
+            "bank_name": "HDFC Bank",
+            "account_number": "50100456789123",
+            "pan_number": "ABCDE1234F",
+            "uan_number": "100987654321",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }, doc_id="EMP-1001")
+
+    # Ensure EMP-1001 has canonical salary structure (Basic 20k, HRA 8k, Other 4k = Gross 32k)
+    structs = FirestoreService.query("salary_structures", {"employee_id": "EMP-1001"})
+    if not structs:
+        logger.info("Seeding canonical salary structure for EMP-1001...")
+        FirestoreService.create("salary_structures", {
+            "employee_id": "EMP-1001",
+            "basic_salary": 20000.0,
+            "hra": 8000.0,
+            "other_allowances": 4000.0,
+            "gross_salary": 32000.0,
+            "pf_applicable": True,
+            "pf_wage_base": 18000.0,
+            "esi_applicable": False,
+            "professional_tax": 200.0,
+            "tds_monthly": 0.0,
+            "effective_date": "2026-01-01",
+            "is_active": True,
+            "created_at": now_iso,
+        })
+
+    # 4. Seed sample performance appraisal review for EMP-1001 if missing
+    reviews = FirestoreService.query("performance_reviews", {"employee_id": "EMP-1001"})
+    if not reviews:
+        logger.info("Seeding canonical performance appraisal for EMP-1001...")
+        FirestoreService.create("performance_reviews", {
+            "employee_id": "EMP-1001",
+            "review_period": "Annual Review 2026",
+            "rating": 4.8,
+            "strengths": "Outstanding software architecture, high attention to detail in payroll calculations, and exceptional full-stack problem solving skills.",
+            "areas_for_improvement": "Continue mentoring newer team members and expanding technical design documentation.",
+            "manager_feedback": "Arshith has demonstrated stellar technical ownership in architecting the automated payroll and HRMS suite. Recommended for leadership fast-track.",
+            "recommended_increment_pct": 15.0,
+            "evaluated_by": "admin@arshith.com",
+            "evaluated_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+    # 5. Seed performance goals for EMP-1001 if missing
+    goals = FirestoreService.query("performance_goals", {"employee_id": "EMP-1001"})
+    if not goals:
+        logger.info("Seeding canonical performance goals for EMP-1001...")
+        FirestoreService.create("performance_goals", {
+            "employee_id": "EMP-1001",
+            "title": "Automated Attendance-Driven Payroll Engine",
+            "description": "Achieve 100% mathematical precision on attendance-driven LOP, PF, ESI and corporate payment file exports.",
+            "target_date": "2026-11-30",
+            "weightage": 40.0,
+            "progress": 95.0,
+            "status": "IN_PROGRESS",
+            "created_by": "admin@arshith.com",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+        FirestoreService.create("performance_goals", {
+            "employee_id": "EMP-1001",
+            "title": "Pixel-Perfect ReportLab Payslip & Statement Generator",
+            "description": "Implement branded high-fidelity PDF payslips and Full-and-Final settlement statements.",
+            "target_date": "2026-12-15",
+            "weightage": 30.0,
+            "progress": 100.0,
+            "status": "COMPLETED",
+            "created_by": "admin@arshith.com",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+        FirestoreService.create("performance_goals", {
+            "employee_id": "EMP-1001",
+            "title": "Employee Self-Service & Appraisal Transparency",
+            "description": "Provide employees with direct transparency into their appraisal ratings, manager feedback, and payslips.",
+            "target_date": "2026-12-31",
+            "weightage": 30.0,
+            "progress": 90.0,
+            "status": "IN_PROGRESS",
+            "created_by": "admin@arshith.com",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })

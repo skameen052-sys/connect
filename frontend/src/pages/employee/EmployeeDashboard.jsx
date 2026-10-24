@@ -1,6 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Calendar, Briefcase, FileText, LogOut, CheckCircle, Plus, CalendarDays, Clock, AlertCircle } from 'lucide-react';
+import {
+  Bell,
+  Calendar,
+  Briefcase,
+  FileText,
+  LogOut,
+  CheckCircle,
+  Plus,
+  CalendarDays,
+  Clock,
+  AlertCircle,
+  Receipt,
+  Coins,
+  Award,
+  UserMinus,
+  ChevronRight,
+  Star,
+  Sparkles,
+} from 'lucide-react';
 import AttendanceCard from '../../components/employee/AttendanceCard';
 import QuickActionCard from '../../components/employee/QuickActionCard';
 import ApplyLeaveModal from '../../components/employee/ApplyLeaveModal';
@@ -10,6 +28,7 @@ import { meetingService } from '../../services/meetingService';
 import { assignmentService } from '../../services/assignmentService';
 import { holidayService } from '../../services/holidayService';
 import { leaveService } from '../../services/leaveService';
+import { performanceService } from '../../services/performanceService';
 import { authService } from '../../services/authService';
 
 export default function EmployeeDashboard() {
@@ -23,31 +42,7 @@ export default function EmployeeDashboard() {
   const [meetings, setMeetings] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [holidays, setHolidays] = useState([]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [annRes, mtgRes, asgRes, holRes] = await Promise.allSettled([
-          announcementService.getAnnouncements(),
-          meetingService.getMeetings(),
-          assignmentService.getAssignments(),
-          holidayService.getHolidays(),
-        ]);
-        if (annRes.status === 'fulfilled' && Array.isArray(annRes.value)) setAnnouncements(annRes.value);
-        if (mtgRes.status === 'fulfilled' && Array.isArray(mtgRes.value)) setMeetings(mtgRes.value);
-        if (asgRes.status === 'fulfilled' && Array.isArray(asgRes.value)) setAssignments(asgRes.value);
-        if (holRes.status === 'fulfilled' && Array.isArray(holRes.value)) setHolidays(holRes.value);
-      } catch (err) {
-        console.warn('Dashboard data fetch error', err);
-      }
-    };
-    loadData();
-  }, []);
-
-  const handleLogout = async () => {
-    await authService.logout();
-    navigate('/login');
-  };
+  const [latestReview, setLatestReview] = useState(null);
 
   const storedUser = (() => {
     try {
@@ -57,6 +52,36 @@ export default function EmployeeDashboard() {
     }
   })();
   const userGreetingName = storedUser?.name ? storedUser.name.split(' ')[0].toLowerCase() : 'employee';
+  const employeeId = storedUser?.employeeId || storedUser?.employee_id || 'EMP-1001';
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [annRes, mtgRes, asgRes, holRes, perfRes] = await Promise.allSettled([
+          announcementService.getAnnouncements(),
+          meetingService.getMeetings(),
+          assignmentService.getAssignments(),
+          holidayService.getHolidays(),
+          performanceService.getReviews(employeeId),
+        ]);
+        if (annRes.status === 'fulfilled' && Array.isArray(annRes.value)) setAnnouncements(annRes.value);
+        if (mtgRes.status === 'fulfilled' && Array.isArray(mtgRes.value)) setMeetings(mtgRes.value);
+        if (asgRes.status === 'fulfilled' && Array.isArray(asgRes.value)) setAssignments(asgRes.value);
+        if (holRes.status === 'fulfilled' && Array.isArray(holRes.value)) setHolidays(holRes.value);
+        if (perfRes.status === 'fulfilled' && Array.isArray(perfRes.value) && perfRes.value.length > 0) {
+          setLatestReview(perfRes.value[0]);
+        }
+      } catch (err) {
+        console.warn('Dashboard data fetch error', err);
+      }
+    };
+    loadData();
+  }, [employeeId]);
+
+  const handleLogout = async () => {
+    await authService.logout();
+    navigate('/login');
+  };
 
   return (
     <div className="employee-dashboard-content animate-fade-in">
@@ -68,6 +93,132 @@ export default function EmployeeDashboard() {
 
       {/* Main Today's Attendance Card */}
       <AttendanceCard />
+
+      {/* Official Performance Appraisal Banner (when admin has submitted an appraisal) */}
+      {latestReview && (
+        <div
+          onClick={() => navigate('/employee/performance')}
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1.5px solid #a7f3d0',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            marginBottom: '24px',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
+            boxShadow: '0 2px 10px rgba(11, 61, 43, 0.04)',
+            transition: 'all 0.2s ease',
+          }}
+          title="Click to view your full performance scorecard & manager feedback"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                backgroundColor: '#d1fae5',
+                color: '#047857',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Award size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0b3d2b' }}>
+                  Performance Appraisal Published
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    color: '#d97706',
+                    backgroundColor: '#fef3c7',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                  }}
+                >
+                  ⭐ {Number(latestReview.rating).toFixed(1)} / 5.0
+                </span>
+                {latestReview.recommended_increment_pct > 0 && (
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      color: '#047857',
+                      backgroundColor: '#d1fae5',
+                      padding: '2px 8px',
+                      borderRadius: '999px',
+                    }}
+                  >
+                    +{latestReview.recommended_increment_pct}% Increment
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                {latestReview.review_period} &bull; Evaluated by {latestReview.evaluated_by || 'Management'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#047857', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0 }}>
+            <span>View Appraisal</span>
+            <ChevronRight size={18} />
+          </div>
+        </div>
+      )}
+
+      {/* Payroll & Employee Self-Service Section (matching user screenshot) */}
+      <section style={{ marginBottom: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: '700', color: '#0b3d2b', margin: 0 }}>
+              Payroll & Self-Service
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '2px 0 0 0' }}>
+              Access your payslips, loans, performance and settlement
+            </p>
+          </div>
+          <span style={{ fontSize: '0.8rem', color: '#0d9488', fontWeight: '600' }}>HRMS Portal</span>
+        </div>
+
+        <div className="quick-actions-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+          <QuickActionCard
+            title="My Payslips"
+            icon={Receipt}
+            iconBg="#ecfdf5"
+            iconColor="#059669"
+            onClick={() => navigate('/employee/payslips')}
+          />
+          <QuickActionCard
+            title="My Loans & Advances"
+            icon={Coins}
+            iconBg="#fffbeb"
+            iconColor="#d97706"
+            onClick={() => navigate('/employee/loans')}
+          />
+          <QuickActionCard
+            title="My Performance"
+            icon={Award}
+            iconBg="#f0fdf4"
+            iconColor="#047857"
+            onClick={() => navigate('/employee/performance')}
+          />
+          <QuickActionCard
+            title="Resignation & Settlement"
+            icon={UserMinus}
+            iconBg="#fef2f2"
+            iconColor="#dc2626"
+            onClick={() => navigate('/employee/resignation')}
+          />
+        </div>
+      </section>
 
       {/* Quick Actions Section */}
       <section className="quick-actions-section">

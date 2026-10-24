@@ -26,6 +26,17 @@ from app.routers import (
     office_timings,
     reports,
     dashboard,
+    salary_structures,
+    payroll,
+    payslips,
+    payments,
+    recruitment,
+    performance,
+    loans,
+    separation,
+    departments,
+    audit,
+    settings as settings_router,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -164,6 +175,17 @@ app.include_router(registration_requests.router, prefix=f"{settings.API_V1_STR}/
 app.include_router(office_timings.router, prefix=settings.API_V1_STR)
 app.include_router(reports.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+app.include_router(salary_structures.router, prefix=settings.API_V1_STR)
+app.include_router(payroll.router, prefix=settings.API_V1_STR)
+app.include_router(payslips.router, prefix=settings.API_V1_STR)
+app.include_router(payments.router, prefix=settings.API_V1_STR)
+app.include_router(recruitment.router, prefix=settings.API_V1_STR)
+app.include_router(performance.router, prefix=settings.API_V1_STR)
+app.include_router(loans.router, prefix=settings.API_V1_STR)
+app.include_router(separation.router, prefix=settings.API_V1_STR)
+app.include_router(departments.router, prefix=settings.API_V1_STR)
+app.include_router(audit.router, prefix=settings.API_V1_STR)
+app.include_router(settings_router.router, prefix=settings.API_V1_STR)
 
 # Aliases for Admin / Employee Dashboard direct access
 @app.get(f"{settings.API_V1_STR}/admin/dashboard", tags=["Dashboards"])

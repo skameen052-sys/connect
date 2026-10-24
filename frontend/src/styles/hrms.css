@@ -1,0 +1,471 @@
+/* Arshith Connect HRMS & Automated Payroll Design System
+   Primary Accent: Dark Forest Green (#134e4a / #0f5132 / #0b3d2b)
+   Neutrals: Soft whites, light mint tints, subtle slate borders
+*/
+
+.hrms-page-container {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.hrms-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.hrms-page-title-group h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hrms-page-subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.hrms-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Primary Forest Green Buttons */
+.hrms-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #134e4a;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.625rem 1.125rem;
+  border-radius: 8px;
+  border: 1px solid #0f766e;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.hrms-btn-primary:hover:not(:disabled) {
+  background-color: #0f766e;
+  border-color: #115e59;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(19, 78, 74, 0.2);
+}
+
+.hrms-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #ffffff;
+  color: #1e293b;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.hrms-btn-secondary:hover:not(:disabled) {
+  background-color: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.hrms-btn-outline-green {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f0fdf4;
+  color: #134e4a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #86efac;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.hrms-btn-outline-green:hover:not(:disabled) {
+  background-color: #dcfce7;
+  border-color: #4ade80;
+}
+
+/* Metric / Stat Cards Grid */
+.hrms-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.hrms-metric-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.hrms-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.hrms-metric-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.hrms-metric-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: #f0fdf4;
+  color: #134e4a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hrms-metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 0.25rem;
+  line-height: 1.2;
+}
+
+.hrms-metric-subtext {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Card Container */
+.hrms-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.hrms-card-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.hrms-card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hrms-card-body {
+  padding: 1.5rem;
+}
+
+/* Data Tables */
+.hrms-table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.hrms-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.hrms-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.hrms-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.hrms-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+/* Status Badges */
+.hrms-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hrms-badge-success {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.hrms-badge-warning {
+  background-color: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.hrms-badge-info {
+  background-color: #f0fdf4;
+  color: #134e4a;
+  border: 1px solid #86efac;
+}
+
+.hrms-badge-danger {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.hrms-badge-neutral {
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+/* Filter Bar */
+.hrms-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.hrms-search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.hrms-search-input-wrap svg {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.hrms-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #0f172a;
+  background-color: #ffffff;
+  transition: border-color 0.15s ease;
+}
+
+.hrms-input:focus {
+  border-color: #134e4a;
+  box-shadow: 0 0 0 3px rgba(19, 78, 74, 0.1);
+}
+
+.hrms-select {
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #0f172a;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.hrms-select:focus {
+  border-color: #134e4a;
+  outline: none;
+}
+
+/* Modal Dialog */
+.hrms-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  padding: 1rem;
+}
+
+.hrms-modal-content {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.hrms-modal-content.lg {
+  max-width: 900px;
+}
+
+.hrms-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hrms-modal-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.hrms-modal-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 6px;
+}
+
+.hrms-modal-close:hover {
+  color: #1e293b;
+  background-color: #f1f5f9;
+}
+
+.hrms-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.hrms-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  background-color: #f8fafc;
+}
+
+/* Form Groups */
+.hrms-form-group {
+  margin-bottom: 1.125rem;
+}
+
+.hrms-form-group label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.375rem;
+}
+
+.hrms-form-group input,
+.hrms-form-group select,
+.hrms-form-group textarea {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #0f172a;
+}
+
+.hrms-form-group input:focus,
+.hrms-form-group select:focus,
+.hrms-form-group textarea:focus {
+  border-color: #134e4a;
+  box-shadow: 0 0 0 3px rgba(19, 78, 74, 0.1);
+}
+
+.hrms-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+/* Empty State */
+.hrms-empty-state {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  color: #64748b;
+}
+
+.hrms-empty-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 1rem;
+  color: #cbd5e1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .hrms-page-container {
+    padding: 1rem;
+  }
+  .hrms-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .hrms-actions-group {
+    width: 100%;
+  }
+  .hrms-actions-group button {
+    flex: 1;
+  }
+}

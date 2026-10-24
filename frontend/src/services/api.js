@@ -57,6 +57,16 @@ export { workUpdateService } from './workUpdateService';
 export { registrationRequestService } from './registrationRequestService';
 export { officeTimingService } from './officeTimingService';
 export { dashboardService } from './dashboardService';
+export { payrollService } from './payrollService';
+export { payslipService } from './payslipService';
+export { paymentService } from './paymentService';
+export { loanService } from './loanService';
+export { separationService } from './separationService';
+export { recruitmentService } from './recruitmentService';
+export { performanceService } from './performanceService';
+export { departmentService } from './departmentService';
+export { auditService } from './auditService';
+export { settingsService } from './settingsService';
 
 export default api;
 

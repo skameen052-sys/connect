@@ -324,6 +324,19 @@ class FirestoreService:
         return list(db.get(key, []))
 
     @classmethod
+    def get_all(cls, entity: str) -> List[Dict[str, Any]]:
+        """Alias for list_all."""
+        return cls.list_all(entity)
+
+    @classmethod
+    def create(cls, entity: str, data: Dict[str, Any], doc_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a document in Firestore with auto-generated ID if omitted."""
+        cid = doc_id or (str(data.get("id")) if data.get("id") else f"{entity[:3].upper()}-{int(datetime.now(timezone.utc).timestamp() * 1000)}")
+        if "id" not in data:
+            data["id"] = cid
+        return cls.save(entity, cid, data)
+
+    @classmethod
     def get_by_id(cls, entity: str, doc_id: Any) -> Optional[Dict[str, Any]]:
         """Retrieve single document by ID, checking document ID and secondary fields."""
         col_name = cls.get_collection_name(entity)
