@@ -106,16 +106,17 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
 
     # Landscape A4: 841.89 x 595.27 points
     page_width, page_height = landscape(A4)
-    margin = 28
-    content_width = page_width - (margin * 2)  # ~785.89 pt
+    content_width = 785.0
+    h_margin = (page_width - content_width) / 2.0  # ~28.45 pt
+    v_margin = 28.0
 
     doc = SimpleDocTemplate(
         buffer,
         pagesize=landscape(A4),
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=margin,
-        bottomMargin=margin,
+        leftMargin=h_margin,
+        rightMargin=h_margin,
+        topMargin=v_margin,
+        bottomMargin=v_margin,
     )
 
     styles = getSampleStyleSheet()
@@ -164,15 +165,15 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     style_tbl_head = ParagraphStyle(
         "TblHead",
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=10,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.black,
     )
     style_tbl_head_r = ParagraphStyle(
         "TblHeadR",
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=10,
+        fontSize=8.5,
+        leading=11,
         alignment=2,  # Right
         textColor=colors.black,
     )
@@ -180,30 +181,30 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     style_tbl_cell = ParagraphStyle(
         "TblCell",
         fontName="Helvetica",
-        fontSize=8,
-        leading=11,
+        fontSize=8.5,
+        leading=12,
         textColor=colors.black,
     )
     style_tbl_cell_r = ParagraphStyle(
         "TblCellR",
         fontName="Helvetica",
-        fontSize=8,
-        leading=11,
+        fontSize=8.5,
+        leading=12,
         alignment=2,  # Right
         textColor=colors.black,
     )
     style_tbl_cell_bold = ParagraphStyle(
         "TblCellBold",
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=11,
+        fontSize=8.5,
+        leading=12,
         textColor=colors.black,
     )
     style_tbl_cell_bold_r = ParagraphStyle(
         "TblCellBoldR",
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=11,
+        fontSize=8.5,
+        leading=12,
         alignment=2,  # Right
         textColor=colors.black,
     )
@@ -211,15 +212,15 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     style_net_title = ParagraphStyle(
         "NetTitle",
         fontName="Helvetica-Bold",
-        fontSize=10,
-        leading=13,
+        fontSize=10.5,
+        leading=14,
         textColor=colors.black,
     )
     style_net_words = ParagraphStyle(
         "NetWords",
         fontName="Helvetica-Oblique",
-        fontSize=8.5,
-        leading=12,
+        fontSize=9,
+        leading=13,
         textColor=colors.black,
     )
 
@@ -254,12 +255,14 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     header_data = [
         [logo_flowable, company_center, ""]
     ]
-    # Total width: ~785 pt -> Logo: 150 pt, Center: 485 pt, Right spacer: 150 pt (to keep title centered)
-    header_table = Table(header_data, colWidths=[150, 485, 150])
+    # Total width: 785 pt -> Logo: 140 pt, Center: 505 pt, Right spacer: 140 pt (to keep title perfectly centered)
+    header_table = Table(header_data, colWidths=[140, 505, 140])
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
         ("ALIGN", (1, 0), (1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
@@ -274,8 +277,9 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     banner_data = [[Paragraph(banner_text, style_banner)]]
     banner_table = Table(banner_data, colWidths=[content_width])
     banner_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#d1d5db")),  # Solid light gray banner
-        ("BOX", (0, 0), (-1, -1), 1, colors.black),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#d4d4d8")),  # Clean standard silver gray
+        ("LINEABOVE", (0, 0), (-1, -1), 1.0, colors.black),
+        ("LINEBELOW", (0, 0), (-1, -1), 1.0, colors.black),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
@@ -307,7 +311,7 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
 
     # 3 balanced column sections (each section has Label and Value)
     # colWidths: [L1, V1, L2, V2, L3, V3] -> sum = 785 pt
-    col_w = [90, 170, 95, 175, 95, 160]
+    col_w = [95, 170, 100, 165, 95, 160]
 
     def _meta_row(l1, v1, l2, v2, l3, v3):
         return [
@@ -334,8 +338,8 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 2.5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
     ]))
 
     # -------------------------------------------------------------------------
@@ -375,10 +379,10 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
         net_pay = tot_paid_earn - tot_deduct
 
     # Column layout for Earnings vs Deductions:
-    # Left (Earnings): [Earning (130), Master (85), Paid (Excl. Arrear) (105), Arrear (70)] = 390 pt
-    # Right (Deductions): [Deduction (175), Deduction (120), Arrear (100)] = 395 pt
-    # Total = 785 pt
-    fin_col_w = [130, 85, 105, 70, 175, 120, 100]
+    # Left (Earnings): [Earning (145), Master (90), Paid (Excl. Arrear) (105), Arrear (75)] = 415 pt
+    # Right (Deductions): [Deduction (150), Deduction (110), Arrear (110)] = 370 pt
+    # Total = 785.0 pt (Exact edge-to-edge alignment with outer master frame)
+    fin_col_w = [145, 90, 105, 75, 150, 110, 110]
 
     fin_rows = [
         # Table Header Row
@@ -438,13 +442,34 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        # Vertical divider between Earnings and Deductions (between column index 3 and 4)
-        ("LINEBEFORE", (4, 0), (4, -1), 1.2, colors.black),
+        # Col 0 (Earning label)
+        ("LEFTPADDING", (0, 0), (0, -1), 10),
+        ("RIGHTPADDING", (0, 0), (0, -1), 4),
+        # Col 1 (Master amount)
+        ("LEFTPADDING", (1, 0), (1, -1), 4),
+        ("RIGHTPADDING", (1, 0), (1, -1), 8),
+        # Col 2 (Paid amount)
+        ("LEFTPADDING", (2, 0), (2, -1), 4),
+        ("RIGHTPADDING", (2, 0), (2, -1), 8),
+        # Col 3 (Arrear amount) - 12pt right padding keeps text safely away from divider
+        ("LEFTPADDING", (3, 0), (3, -1), 4),
+        ("RIGHTPADDING", (3, 0), (3, -1), 12),
+        # Col 4 (Deduction label) - 12pt left padding keeps text safely away from divider
+        ("LEFTPADDING", (4, 0), (4, -1), 12),
+        ("RIGHTPADDING", (4, 0), (4, -1), 4),
+        # Col 5 (Deduction amount)
+        ("LEFTPADDING", (5, 0), (5, -1), 4),
+        ("RIGHTPADDING", (5, 0), (5, -1), 8),
+        # Col 6 (Arrear amount) - 12pt right padding keeps text safely inside outer border
+        ("LEFTPADDING", (6, 0), (6, -1), 4),
+        ("RIGHTPADDING", (6, 0), (6, -1), 12),
+        # Top dividing line across table
+        ("LINEABOVE", (0, 0), (-1, 0), 1.0, colors.black),
+        # Vertical divider between Earnings and Deductions (between column 3 and 4)
+        ("LINEBEFORE", (4, 0), (4, -1), 1.0, colors.black),
         # Horizontal top and bottom divider for Totals row
-        ("LINEABOVE", (0, 4), (-1, 4), 1.2, colors.black),
-        ("LINEBELOW", (0, 4), (-1, 4), 1.2, colors.black),
+        ("LINEABOVE", (0, 4), (-1, 4), 1.0, colors.black),
+        ("LINEBELOW", (0, 4), (-1, 4), 1.0, colors.black),
     ]))
 
     # -------------------------------------------------------------------------
@@ -463,46 +488,35 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     net_table = Table(net_rows, colWidths=[content_width])
     net_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("LINEABOVE", (0, 0), (-1, 0), 1.0, colors.black),
     ]))
 
     # -------------------------------------------------------------------------
     # 6. Assemble All Inside a Clean Outer Frame Table (Matching Reference Box)
     # -------------------------------------------------------------------------
-    # We combine header, banner, metadata, dividing line, finance table, dividing line, net table
-    # inside an outer master table with a crisp border!
-    dividing_line = Table([[""]], colWidths=[content_width], rowHeights=[1])
-    dividing_line.setStyle(TableStyle([
-        ("LINEABOVE", (0, 0), (-1, -1), 1.2, colors.black),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-
+    # Header, banner, metadata, finance table, and net table align edge-to-edge
     master_content = [
         [header_table],
         [banner_table],
         [Spacer(1, 4)],
         [meta_table],
         [Spacer(1, 4)],
-        [dividing_line],
-        [Spacer(1, 4)],
         [fin_table],
-        [Spacer(1, 4)],
-        [dividing_line],
         [net_table],
-        [Spacer(1, 6)],
     ]
 
     master_table = Table(master_content, colWidths=[content_width])
     master_table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1.5, colors.black),  # Single prominent outer rectangle
+        ("BOX", (0, 0), (-1, -1), 1.2, colors.black),  # Single outer rectangle
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
 
     story.append(master_table)
