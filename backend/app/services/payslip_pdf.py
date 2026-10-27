@@ -19,8 +19,8 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 
-def number_to_indian_rupees(num: float) -> str:
-    """Converts a number to standard Indian Rupees in words (e.g., 'Thirty Thousand Nine Hundred and Thirty One Only')."""
+def number_to_words(num: float) -> str:
+    """Converts a number to standard Indian Rupees in words with paise support."""
     units = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"]
     teens = ["Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
     tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
@@ -40,9 +40,16 @@ def number_to_indian_rupees(num: float) -> str:
                 res += units[n] + " "
         return res
 
-    rupees = int(round(num))
-    if rupees <= 0:
-        return "Indianrupees Zero Only"
+    try:
+        val = float(num or 0.0)
+    except (ValueError, TypeError):
+        val = 0.0
+
+    rupees = int(val)
+    paise = int(round((val - rupees) * 100))
+
+    if rupees <= 0 and paise <= 0:
+        return "Zero Rupees Only"
 
     words = ""
     crore = rupees // 10000000
@@ -64,7 +71,22 @@ def number_to_indian_rupees(num: float) -> str:
         words += convert_upto_thousand(rupees)
 
     clean_words = " ".join(words.split())
-    return f"Indianrupees {clean_words} Only"
+    result = f"{clean_words} Rupees" if clean_words else ""
+
+    if paise > 0:
+        paise_words = " ".join(convert_upto_thousand(paise).split())
+        if result:
+            result += f" and {paise_words} Paise"
+        else:
+            result = f"{paise_words} Paise"
+
+    return f"{result} Only".strip()
+
+
+def number_to_indian_rupees(num: float) -> str:
+    """Converts a number to standard Indian Rupees banner in words."""
+    words = number_to_words(num)
+    return f"Indianrupees {words}"
 
 
 def _fmt(val: Any) -> str:
