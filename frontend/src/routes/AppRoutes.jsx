@@ -25,10 +25,8 @@ import EmployeeProfile from '../pages/employee/EmployeeProfile';
 import EmployeeWorkAssignments from '../pages/employee/EmployeeWorkAssignments';
 import EmployeeWorkUpdates from '../pages/employee/EmployeeWorkUpdates';
 import EmployeeChat from '../pages/employee/EmployeeChat';
-
 // Admin Portal Pages (Canonical 15 Modules)
 import AdminDashboard from '../pages/admin/AdminDashboard';
-import AdminChat from '../pages/admin/AdminChat';
 import AdminAttendance from '../pages/admin/AdminAttendance';
 import AdminLeaveManagement from '../pages/admin/AdminLeaveManagement';
 import AdminHolidayManagement from '../pages/admin/AdminHolidayManagement';
@@ -56,6 +54,7 @@ import AdminPerformance from '../pages/admin/AdminPerformance';
 import AdminDepartments from '../pages/admin/AdminDepartments';
 import AdminAuditLogs from '../pages/admin/AdminAuditLogs';
 import AdminSettings from '../pages/admin/AdminSettings';
+import AdminChat from '../pages/admin/AdminChat';
 
 // Employee Self-Service HRMS Extensions
 import EmployeePayslips from '../pages/employee/EmployeePayslips';

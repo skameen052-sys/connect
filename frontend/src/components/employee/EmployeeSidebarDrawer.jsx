@@ -26,15 +26,6 @@ import { chatService } from '../../services/chatService';
 export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
-
-  useEffect(() => {
-    let isMounted = true;
-    chatService.getUnreadCount().then((count) => {
-      if (isMounted) setUnreadChatCount(count);
-    }).catch(() => {});
-    return () => { isMounted = false; };
-  }, [location.pathname]);
 
   // Close on Escape key
   useEffect(() => {
@@ -68,6 +59,23 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
   })();
   const employeeName = storedUser?.name || 'Employee';
   const employeeId = storedUser?.employeeId || 'AFI-001';
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUnread = async () => {
+      try {
+        const count = await chatService.getUnreadCount();
+        if (isMounted) setUnreadCount(count);
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleNavigate = (path) => {
     navigate(path);
@@ -77,8 +85,8 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
   // Canonical employee nav items with HRMS self-service extensions
   const navItems = [
     { label: 'Dashboard', path: '/employee/dashboard', icon: Home },
-    { label: 'Teams Chat', path: '/employee/chat', icon: MessageSquare, hasBadge: true },
     { label: 'Attendance', path: '/employee/attendance', icon: Clock },
+    { label: 'Teams Chat', path: '/employee/chat', icon: MessageSquare, isChat: true },
     { label: 'Leave Management', path: '/employee/leaves', icon: FileText },
     { label: 'My Payslips', path: '/employee/payslips', icon: Receipt },
     { label: 'My Loans & Advances', path: '/employee/loans', icon: Coins },
@@ -153,24 +161,25 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
                 className={`employee-drawer-nav-item ${isActive ? 'active' : ''}`}
                 onClick={() => handleNavigate(item.path)}
                 aria-current={isActive ? 'page' : undefined}
+                style={{ display: 'flex', alignItems: 'center', width: '100%' }}
               >
                 <span className="drawer-item-icon">
                   <Icon size={20} />
                 </span>
                 <span className="drawer-item-label">{item.label}</span>
-                {item.hasBadge && unreadChatCount > 0 && (
+                {item.isChat && unreadCount > 0 && (
                   <span
                     style={{
                       marginLeft: 'auto',
-                      backgroundColor: '#4f46e5',
+                      backgroundColor: '#ef4444',
                       color: '#ffffff',
                       fontSize: '0.7rem',
-                      fontWeight: '700',
+                      fontWeight: 700,
                       padding: '1px 7px',
                       borderRadius: '10px',
                     }}
                   >
-                    {unreadChatCount}
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
               </button>

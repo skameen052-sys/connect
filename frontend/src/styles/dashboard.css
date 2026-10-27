@@ -340,37 +340,100 @@
 .attendance-actions-row {
   display: flex;
   gap: 12px;
+  margin-top: 16px;
+  margin-bottom: 8px;
 }
 
-.btn-check-in {
-  flex: 1;
-  height: 42px;
-  background-color: #6941c6;
-  color: #ffffff;
-  font-size: 0.88rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  border-radius: 10px;
-  box-shadow: 0 3px 12px rgba(105, 65, 198, 0.22);
-}
-
-.btn-check-in:hover:not(:disabled) {
-  background-color: #5935b5;
-}
-
+/* Base button styling */
+.btn-check-in,
 .btn-check-out {
   flex: 1;
-  height: 42px;
-  background-color: #eff1f7;
-  color: #374151;
+  height: 44px;
   font-size: 0.88rem;
   font-weight: 700;
   letter-spacing: 0.5px;
   border-radius: 10px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s ease;
+  outline: none;
+  user-select: none;
 }
 
-.btn-check-out:hover:not(:disabled) {
-  background-color: #e2e5ef;
+/* State 1: Active Check In (prominent purple with white text) */
+.btn-check-in.btn-check-in-active,
+.btn-check-in:not(:disabled):not(.btn-check-in-disabled) {
+  background-color: #6941c6;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(105, 65, 198, 0.28);
+  cursor: pointer;
+  border-color: transparent;
+}
+
+.btn-check-in.btn-check-in-active:hover:not(:disabled),
+.btn-check-in:not(:disabled):not(.btn-check-in-disabled):hover {
+  background-color: #5935b5;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(105, 65, 198, 0.38);
+}
+
+.btn-check-in.btn-check-in-active:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* State 2 & 3: Disabled Check In (muted grey to prevent duplicate check-ins) */
+.btn-check-in.btn-check-in-disabled,
+.btn-check-in:disabled {
+  background-color: #e5e7eb !important;
+  color: #9ca3af !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+
+/* State 1: Disabled Check Out (before check-in) */
+.btn-check-out.btn-check-out-disabled,
+.btn-check-out:disabled:not(.btn-check-out-completed) {
+  background-color: #e5e7eb !important;
+  color: #9ca3af !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+
+/* State 2: Active Check Out (prominent blue #2563EB with subtle shadow and rounded corners) */
+.btn-check-out.btn-check-out-active {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.32) !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+}
+
+.btn-check-out.btn-check-out-active:hover:not(:disabled) {
+  background-color: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.42) !important;
+}
+
+.btn-check-out.btn-check-out-active:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* State 3: Completed Check Out (light blue background with blue border and muted text) */
+.btn-check-out.btn-check-out-completed {
+  background-color: #eff6ff !important;
+  color: #9ca3af !important;
+  border: 1px solid #bfdbfe !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: 0.9 !important;
 }
 
 /* Quick Actions Section */
@@ -426,6 +489,30 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+}
+
+.action-card-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #EF2929;
+  color: #FFFFFF;
+  font-size: 0.68rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  line-height: 1;
+  pointer-events: none;
+  z-index: 2;
+  box-sizing: border-box;
 }
 
 .action-card-title {

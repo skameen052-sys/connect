@@ -35,6 +35,9 @@ database_backup.sql
 database_backup_export.json
 postgres_backup_data.json
 *.sql
+backend/app/static/chat_uploads/*
+!backend/app/static/chat_uploads/.gitkeep
+*.pdf
 
 # Android Native
 .gradle/

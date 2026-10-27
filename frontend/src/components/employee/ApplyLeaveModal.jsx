@@ -56,6 +56,7 @@ export default function ApplyLeaveModal({
   onClose,
   onSuccess,
   balances: initialBalances,
+  recentDecisions = [],
 }) {
   // Form Fields
   const [leaveType, setLeaveType] = useState('Casual Leave (CL)');
@@ -300,6 +301,56 @@ export default function ApplyLeaveModal({
             >
               <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <span>{errorMessage}</span>
+            </div>
+          )}
+          {recentDecisions && recentDecisions.length > 0 && (
+            <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Recent Decision Updates
+              </div>
+              {recentDecisions.map((dec) => (
+                <div
+                  key={dec.id}
+                  style={{
+                    backgroundColor: dec.status === 'Approved' ? '#ecfdf5' : '#fef2f2',
+                    border: `1.5px solid ${dec.status === 'Approved' ? '#a7f3d0' : '#fca5a5'}`,
+                    borderRadius: '12px',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {dec.status === 'Approved' ? (
+                      <CheckCircle2 size={20} color="#059669" style={{ flexShrink: 0 }} />
+                    ) : (
+                      <AlertCircle size={20} color="#dc2626" style={{ flexShrink: 0 }} />
+                    )}
+                    <div>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: dec.status === 'Approved' ? '#065f46' : '#991b1b' }}>
+                        Leave Request {dec.id} &bull; {dec.status.toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                        {dec.leave_type || 'Leave'} {dec.rejection_remarks ? `• Reason: ${dec.rejection_remarks}` : '• Reviewed by Administrator'}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      backgroundColor: dec.status === 'Approved' ? '#d1fae5' : '#fee2e2',
+                      color: dec.status === 'Approved' ? '#047857' : '#b91c1c',
+                      padding: '3px 10px',
+                      borderRadius: '999px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {dec.status}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 

@@ -1,32 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, MessageSquare } from 'lucide-react';
+import { X } from 'lucide-react';
 import BrandLogo from './common/BrandLogo';
 import { chatService } from '../services/chatService';
 
 /**
  * AdminSidebar - Administrator Navigation Sidebar & Drawer
- * Includes core navigation items and real-time Teams Chat module.
+ * Includes core navigation items for administrative operations.
  */
 export default function AdminSidebar({ onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
-    chatService.getUnreadCount().then((count) => {
-      if (isMounted) setUnreadChatCount(count);
-    }).catch(() => {});
-    return () => { isMounted = false; };
-  }, [location.pathname]);
+    const fetchUnread = async () => {
+      try {
+        const count = await chatService.getUnreadCount();
+        if (isMounted) setUnreadCount(count);
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const navSections = [
     {
       title: 'Core Operations',
       items: [
         { label: 'Dashboard', path: '/admin/dashboard', aliases: ['/admin', '/admin/dashboard'] },
-        { label: 'Teams Chat', path: '/admin/chat', aliases: ['/admin/chat', '/admin/teams/chat'], hasBadge: true },
         { label: 'Attendance', path: '/admin/attendance', aliases: ['/admin/attendance'] },
         { label: 'Leave Management', path: '/admin/leaves', aliases: ['/admin/leaves', '/admin/leave-management'] },
         { label: 'Holiday Management', path: '/admin/holidays', aliases: ['/admin/holidays', '/admin/holiday-management'] },
@@ -35,6 +42,7 @@ export default function AdminSidebar({ onClose }) {
         { label: 'Employees', path: '/admin/employees', aliases: ['/admin/employees'] },
         { label: 'Employee List', path: '/admin/employees/list', aliases: ['/admin/employees/list', '/admin/employee-list'] },
         { label: 'Teams', path: '/admin/teams', aliases: ['/admin/teams'] },
+        { label: 'Teams Chat', path: '/admin/chat', aliases: ['/admin/chat', '/admin/teams/chat'], isChat: true },
         { label: 'Work Assignments', path: '/admin/assignments', aliases: ['/admin/assignments', '/admin/work-assignments'] },
         { label: 'Work Updates', path: '/admin/updates', aliases: ['/admin/updates', '/admin/work-updates'] },
         { label: 'Registration Requests', path: '/admin/registration-requests', aliases: ['/admin/registration-requests'] },
@@ -129,21 +137,22 @@ export default function AdminSidebar({ onClose }) {
                   className={`admin-drawer-item ${isActive ? 'active' : ''}`}
                   onClick={() => handleSelectRoute(item.path)}
                   aria-current={isActive ? 'page' : undefined}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
                 >
                   <span className="admin-drawer-item-label">{item.label}</span>
-                  {item.hasBadge && unreadChatCount > 0 && (
+                  {item.isChat && unreadCount > 0 && (
                     <span
                       style={{
-                        marginLeft: 'auto',
-                        backgroundColor: '#4f46e5',
+                        backgroundColor: '#ef4444',
                         color: '#ffffff',
                         fontSize: '0.7rem',
-                        fontWeight: '700',
+                        fontWeight: 700,
                         padding: '1px 7px',
                         borderRadius: '10px',
+                        marginLeft: 'auto',
                       }}
                     >
-                      {unreadChatCount}
+                      {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
                 </button>

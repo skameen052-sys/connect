@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import logging
+import os
 from fastapi import FastAPI, Request, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.firebase import init_firebase, is_firebase_live
@@ -38,6 +40,7 @@ from app.routers import (
     audit,
     settings as settings_router,
     chat,
+    notifications,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -95,6 +98,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files directory for assets and chat attachments
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(os.path.join(static_dir, "chat_uploads"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 from app.core.exceptions import DuplicateFieldsException, RegistrationValidationException
 
@@ -188,6 +196,7 @@ app.include_router(departments.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)
 app.include_router(settings_router.router, prefix=settings.API_V1_STR)
 app.include_router(chat.router, prefix=settings.API_V1_STR)
+app.include_router(notifications.router, prefix=settings.API_V1_STR)
 
 # Aliases for Admin / Employee Dashboard direct access
 @app.get(f"{settings.API_V1_STR}/admin/dashboard", tags=["Dashboards"])

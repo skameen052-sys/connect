@@ -126,6 +126,50 @@ def sync_employee_approval_state(
                 "updated_at": now_iso,
             })
 
+    # If employee is approved but no employee document exists in Firestore, create canonical profile
+    if is_approved and not emp_ids_seen:
+        target_uid = user_uid or (reqs[0].get("id") or reqs[0].get("requestId") if reqs else None) or (users[0].get("id") if users else None)
+        if not target_uid:
+            target_uid = emp_code or clean_email
+
+        for r in reqs:
+            emp_code = emp_code or r.get("employeeId") or r.get("employee_id")
+            emp_name = r.get("full_name") or r.get("name") or emp_name
+            phone = r.get("phone") or phone
+        for u in users:
+            emp_code = emp_code or u.get("employeeId") or u.get("employee_id")
+            emp_name = u.get("name") or emp_name
+
+        canonical_code = emp_code or f"AFI-{str(target_uid)[:6].upper()}"
+        new_emp_doc = {
+            "id": str(target_uid),
+            "uid": str(target_uid),
+            "user_id": str(target_uid),
+            "employeeId": canonical_code,
+            "employee_id": canonical_code,
+            "name": emp_name,
+            "fullName": emp_name,
+            "full_name": emp_name,
+            "email": clean_email,
+            "phone": phone or "--",
+            "role": "Employee",
+            "department": dept or "Operations",
+            "designation": desig or "Operations Associate",
+            "status": "approved",
+            "reviewedAt": now_iso,
+            "reviewedBy": admin_identifier,
+            "reviewed_at": now_iso,
+            "reviewed_by": admin_identifier,
+            "shift": "General (09:30 AM - 06:30 PM)",
+            "location": "HQ Office",
+            "createdAt": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        FirestoreService.save("employees", str(target_uid), new_emp_doc)
+        emp_ids_seen.add(str(target_uid))
+        logger.info(f"[SyncService] Created approved employee document in 'employees': {target_uid} ({clean_email})")
+
     # -------------------------------------------------------------
     # 2. Synchronize PostgreSQL database
     # -------------------------------------------------------------

@@ -226,7 +226,7 @@ def create_meeting(
 
     organizer = (data.organizer or "Administrator").strip()
     admin_id = "ADM-001"
-    code = f"MTG-{random.randint(100, 999)}"
+    code = f"MTG-{int(datetime.now(timezone.utc).timestamp() * 1000) % 1000000}"
     now_iso = datetime.now(timezone.utc).isoformat()
 
     recip_type = (data.recipientType or data.recipient_type or "All Employees").strip()

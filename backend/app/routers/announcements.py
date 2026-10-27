@@ -94,6 +94,8 @@ def list_announcements(
 
     if settings.DATABASE_BACKEND == "firebase":
         raw = FirestoreService.list_all("announcements")
+        if not raw:
+            raw = FirestoreService.list_all("notifications")
         filtered = []
 
         emp_id = ""
@@ -201,7 +203,7 @@ def create_announcement(
     elif not isinstance(raw_recipients, list):
         raw_recipients = None
 
-    code = f"ANN-{random.randint(100, 9999)}"
+    code = f"ANN-{int(datetime.now(timezone.utc).timestamp() * 1000) % 1000000}"
     now_iso = datetime.now(timezone.utc).isoformat()
     today_iso = date.today().isoformat()
 

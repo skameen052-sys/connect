@@ -431,14 +431,30 @@ def apply_leave(
         )
 
     if settings.DATABASE_BACKEND == "firebase":
-        emps = FirestoreService.query("employees", {"email": user_email})
-        if not emps and user_id:
-            emps = FirestoreService.query("employees", {"user_id": user_id})
-        if not emps:
+        emp = None
+        if user_id:
+            emp = FirestoreService.get_by_id("employees", str(user_id))
+        if not emp and user_email:
+            matches = FirestoreService.query("employees", {"email": user_email})
+            if matches:
+                emp = matches[0]
+        if not emp and user_id:
+            matches = FirestoreService.query("employees", {"uid": str(user_id)})
+            if matches:
+                emp = matches[0]
+        if not emp and user_id:
+            matches = FirestoreService.query("employees", {"user_id": user_id})
+            if matches:
+                emp = matches[0]
+        emp_code = getattr(current_user, "employee_id", None) or getattr(current_user, "employeeId", None)
+        if not emp and emp_code:
+            emp = FirestoreService.get_by_id("employees", str(emp_code))
+        if not emp and hasattr(current_user, "_data") and current_user._data.get("employeeId"):
+            emp = current_user._data
+        if not emp:
             raise HTTPException(status_code=404, detail="Employee profile not found.")
-        emp = emps[0]
-        emp_id = emp.get("employee_id") or emp.get("employeeId")
-        emp_name = emp.get("full_name") or emp.get("fullName") or "Employee"
+        emp_id = emp.get("employee_id") or emp.get("employeeId") or str(user_id)
+        emp_name = emp.get("full_name") or emp.get("fullName") or emp.get("name") or "Employee"
     else:
         emp = db.query(Employee).filter(Employee.user_id == current_user.id).first()
         if not emp:

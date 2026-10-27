@@ -298,15 +298,10 @@ export default function AttendanceCard() {
 
   if (isCompleted) {
     badgeClass = 'status-badge-completed';
-    badgeLabel = 'Completed';
+    badgeLabel = 'Attendance Completed';
   } else if (isCheckedIn) {
-    if (isLate) {
-      badgeClass = 'status-badge-late';
-      badgeLabel = lateReason ? 'Late • Reason Submitted' : 'Late • Reason Pending';
-    } else {
-      badgeClass = 'status-badge-checked';
-      badgeLabel = 'Checked In';
-    }
+    badgeClass = 'status-badge-checked';
+    badgeLabel = 'Working';
   }
 
   return (
@@ -493,27 +488,43 @@ export default function AttendanceCard() {
       <div className="attendance-actions-row">
         <button
           type="button"
-          className="btn-check-in"
+          id="btn-attendance-check-in"
+          className={`btn-check-in ${
+            !isCheckedIn && !isCompleted ? 'btn-check-in-active' : 'btn-check-in-disabled'
+          }`}
           onClick={handleCheckInClick}
           disabled={isCheckedIn || isCompleted}
-          style={{
-            opacity: isCheckedIn || isCompleted ? 0.5 : 1,
-            cursor: isCheckedIn || isCompleted ? 'not-allowed' : 'pointer',
-          }}
+          title={
+            isCompleted
+              ? 'Attendance completed for today'
+              : isCheckedIn
+              ? 'Already checked in for today'
+              : 'Click to start check-in'
+          }
         >
           CHECK IN
         </button>
         <button
           type="button"
-          className="btn-check-out"
+          id="btn-attendance-check-out"
+          className={`btn-check-out ${
+            isCheckedIn && !isCompleted
+              ? 'btn-check-out-active'
+              : isCompleted
+              ? 'btn-check-out-completed'
+              : 'btn-check-out-disabled'
+          }`}
           onClick={handleCheckOutClick}
-          disabled={!isCheckedIn || isCompleted}
-          style={{
-            opacity: !isCheckedIn || isCompleted ? 0.5 : 1,
-            cursor: !isCheckedIn || isCompleted ? 'not-allowed' : 'pointer',
-          }}
+          disabled={!isCheckedIn || isCompleted || isProcessingCheckout}
+          title={
+            isCompleted
+              ? 'Attendance completed for today'
+              : !isCheckedIn
+              ? 'Check in first to enable check out'
+              : 'Click to confirm check-out'
+          }
         >
-          CHECK OUT
+          {isProcessingCheckout ? 'PROCESSING...' : 'CHECK OUT'}
         </button>
       </div>
 

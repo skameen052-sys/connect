@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, MessageSquare } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
@@ -8,29 +8,27 @@ export default function AdminNavbar({ onToggleSidebar }) {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    let isMounted = true;
-    chatService.getUnreadCount().then((count) => {
-      if (isMounted) setUnreadCount(count);
-    }).catch(() => {});
-
-    const interval = setInterval(() => {
-      chatService.getUnreadCount().then((count) => {
-        if (isMounted) setUnreadCount(count);
-      }).catch(() => {});
-    }, 6000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, []);
-
   const handleLogout = useCallback(() => {
     localStorage.removeItem('arshith_role');
     localStorage.removeItem('arshith_user');
     navigate('/admin/login');
   }, [navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUnread = async () => {
+      try {
+        const count = await chatService.getUnreadCount();
+        if (isMounted) setUnreadCount(count);
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const storedUser = (() => {
     try {
@@ -67,44 +65,44 @@ export default function AdminNavbar({ onToggleSidebar }) {
       </div>
 
       <div className="portal-nav-right">
+        {/* Teams Chat Icon with Unread Badge */}
         <button
           type="button"
           onClick={() => navigate('/admin/chat')}
           style={{
             position: 'relative',
-            padding: '7px 12px',
-            borderRadius: '8px',
-            backgroundColor: '#eef2ff',
-            color: '#4f46e5',
-            fontSize: '0.8rem',
-            fontWeight: '700',
+            background: 'transparent',
+            border: 'none',
+            padding: '7px 9px',
+            cursor: 'pointer',
+            color: '#1e293b',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            border: '1px solid #c7d2fe',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
+            justifyContent: 'center',
+            borderRadius: '8px',
+            transition: 'background-color 0.15s ease',
           }}
-          title="Open Teams Chat"
+          className="navbar-chat-trigger"
+          title="Open Teams Chat & Channels"
         >
-          <MessageSquare size={16} />
-          <span>Teams Chat</span>
+          <MessageSquare size={19} />
           {unreadCount > 0 && (
             <span
               style={{
                 position: 'absolute',
-                top: '-6px',
-                right: '-6px',
+                top: '0px',
+                right: '0px',
                 backgroundColor: '#ef4444',
                 color: '#ffffff',
                 fontSize: '0.65rem',
-                fontWeight: '800',
-                padding: '1px 6px',
+                fontWeight: 700,
                 borderRadius: '10px',
-                border: '2px solid #ffffff',
+                padding: '1px 5px',
+                lineHeight: 1.2,
+                boxShadow: '0 0 0 2px #ffffff',
               }}
             >
-              {unreadCount}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </button>

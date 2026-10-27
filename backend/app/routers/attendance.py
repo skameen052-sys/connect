@@ -1,11 +1,11 @@
 import os
 from datetime import datetime, date, timezone
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Tuple, Dict
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, desc
+from sqlalchemy import or_, desc, func
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
@@ -35,6 +35,7 @@ from app.services.attendance_service import (
     calculate_haversine_distance_meters,
     verify_wfo_geofence,
     get_employee_authorized_work_mode,
+    get_attendance_storage_dir,
 )
 from app.services.firestore_service import FirestoreService
 from app.services.sync_service import sync_attendance_to_postgres
@@ -562,6 +563,12 @@ def get_today_attendance_status(
 
     if settings.DATABASE_BACKEND == "firebase":
         records = FirestoreService.query("attendance", {"employee_id": emp_id, "date": today_iso})
+        if not records:
+            records = FirestoreService.query("attendance", {"employeeId": emp_id, "date": today_iso})
+        if not records:
+            direct_doc = FirestoreService.get_by_id("attendance", f"{emp_id}_{today_iso}")
+            if direct_doc:
+                records = [direct_doc]
         record = records[0] if records else None
 
         emp_uid = str(getattr(employee, "uid", None) or getattr(employee, "id", None) or emp_id)
@@ -759,6 +766,300 @@ def get_today_attendance_status(
     )
 
 
+
+def resolve_employee_for_attendance(
+    current_user: Any,
+    param_emp_id: Optional[str] = None,
+    db: Optional[Session] = None,
+) -> Tuple[Any, str, str]:
+    """
+    Authoritative resolution of employee profile for attendance check-in, check-out, and status.
+    Returns: (employee_record_dict_or_object, canonical_employee_id, canonical_uid)
+    """
+    user_role = str(getattr(current_user, "role", "employee")).strip().lower()
+    user_id = getattr(current_user, "id", None) or getattr(current_user, "uid", None)
+    user_email = str(getattr(current_user, "email", "")).strip().lower()
+
+    # 1. Admin punch-in on behalf of employee
+    if user_role == "admin":
+        if not param_emp_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Employee ID is required for administrative attendance actions.",
+            )
+        emp_id = str(param_emp_id).strip()
+        if settings.DATABASE_BACKEND == "firebase":
+            emp = FirestoreService.get_by_id("employees", emp_id)
+            if not emp:
+                matches = FirestoreService.query("employees", {"employee_id": emp_id})
+                if not matches:
+                    matches = FirestoreService.query("employees", {"employeeId": emp_id})
+                if not matches:
+                    matches = FirestoreService.query("employees", {"uid": emp_id})
+                if not matches:
+                    matches = FirestoreService.query("employees", {"email": emp_id.lower()})
+                emp = matches[0] if matches else None
+            if not emp:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Target employee '{emp_id}' could not be identified.",
+                )
+            emp_uid = str(emp.get("uid") or emp.get("id") or emp_id)
+            canonical_emp_id = str(emp.get("employee_id") or emp.get("employeeId") or emp_id)
+            return emp, canonical_emp_id, emp_uid
+        else:
+            emp = db.query(Employee).filter(
+                (Employee.employee_id == emp_id) |
+                (Employee.email == emp_id.lower())
+            ).first() if db else None
+            if not emp:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Target employee '{emp_id}' could not be identified.",
+                )
+            return emp, emp.employee_id, str(emp.user_id or emp.employee_id)
+
+    # 2. Employee attendance actions
+    if user_role != "employee":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employee access required to punch attendance.",
+        )
+
+    # Check status from current_user
+    status_val = str(
+        getattr(current_user, "status", None)
+        or getattr(current_user, "approval_status", "active")
+    ).strip().lower()
+
+    if status_val in ["pending", "under_review", "pending_approval"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+        )
+    if status_val == "rejected":
+        reason = getattr(current_user, "rejection_reason", None)
+        detail_msg = "Your registration request was not approved. Please contact company administration."
+        if reason:
+            detail_msg += f" Reason: {reason}"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail_msg,
+        )
+    if getattr(current_user, "is_active", True) is False or status_val in ["inactive", "disabled", "suspended"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your employee account is currently inactive. Please contact administration.",
+        )
+
+    user_emp_code = str(
+        getattr(current_user, "employee_id", None)
+        or getattr(current_user, "employeeId", None)
+        or (param_emp_id if param_emp_id else "")
+        or ""
+    ).strip()
+
+    if settings.DATABASE_BACKEND == "firebase":
+        emp = None
+        # Step A: Lookup by UID document ID (Android canonical format)
+        if user_id:
+            emp = FirestoreService.get_by_id("employees", str(user_id))
+        # Step B: Lookup by employeeId document ID
+        if not emp and user_emp_code:
+            emp = FirestoreService.get_by_id("employees", str(user_emp_code))
+        # Step C: Lookup by email field
+        if not emp and user_email:
+            matches = FirestoreService.query("employees", {"email": user_email})
+            if matches:
+                emp = matches[0]
+        # Step D: Lookup by uid field
+        if not emp and user_id:
+            matches = FirestoreService.query("employees", {"uid": str(user_id)})
+            if matches:
+                emp = matches[0]
+        # Step E: Lookup by user_id field
+        if not emp and user_id:
+            matches = FirestoreService.query("employees", {"user_id": user_id})
+            if matches:
+                emp = matches[0]
+        # Step F: Lookup by employeeId field
+        if not emp and user_emp_code:
+            matches = FirestoreService.query("employees", {"employeeId": str(user_emp_code)})
+            if matches:
+                emp = matches[0]
+        # Step G: Lookup by employee_id field
+        if not emp and user_emp_code:
+            matches = FirestoreService.query("employees", {"employee_id": str(user_emp_code)})
+            if matches:
+                emp = matches[0]
+        # Step H: Case-insensitive email query fallback
+        if not emp and user_email:
+            all_emps = FirestoreService.list_all("employees")
+            for e in all_emps:
+                if str(e.get("email", "")).lower().strip() == user_email:
+                    emp = e
+                    break
+
+        # Fallback for authenticated, approved users whose employee profile document was missing
+        if not emp:
+            user_doc = None
+            if user_id:
+                user_doc = FirestoreService.get_by_id("users", str(user_id))
+            if not user_doc and user_email:
+                u_matches = FirestoreService.query("users", {"email": user_email})
+                if u_matches:
+                    user_doc = u_matches[0]
+
+            req_matches = FirestoreService.query("registration_requests", {"email": user_email}) if user_email else []
+            target_req = req_matches[0] if req_matches else None
+
+            # Check if pending or rejected in user_doc / target_req
+            u_status = str(
+                (user_doc.get("status") or user_doc.get("approval_status") if user_doc else None)
+                or (target_req.get("status") if target_req else None)
+                or ""
+            ).strip().lower()
+
+            if u_status in ["pending", "under_review", "pending_approval"]:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+                )
+            if u_status == "rejected":
+                reason = (user_doc.get("rejection_reason") if user_doc else None) or (target_req.get("rejection_reason") if target_req else None)
+                detail_msg = "Your registration request was not approved. Please contact company administration."
+                if reason:
+                    detail_msg += f" Reason: {reason}"
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=detail_msg,
+                )
+
+            if not user_doc and not target_req:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found.")
+
+            # Verify the record is actually approved
+            is_record_approved = (
+                (user_doc and str(user_doc.get("status", "") or user_doc.get("approval_status", "")).strip().lower() in ["approved", "active"])
+                or (target_req and str(target_req.get("status", "")).strip().lower() in ["approved", "active"])
+            )
+            if not is_record_approved:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+                )
+
+            # If authenticated user is approved, synthesize and persist employee profile to employees collection
+            canonical_id = str(user_id or (user_doc.get("id") if user_doc else None) or "emp_user")
+            canonical_code = (
+                user_emp_code
+                or (str(user_doc.get("employeeId") or user_doc.get("employee_id") or "") if user_doc else "")
+                or (str(target_req.get("employeeId") or target_req.get("employee_id") or "") if target_req else "")
+                or f"AFI-{canonical_id[:6].upper()}"
+            )
+            emp_name = (
+                (user_doc.get("name") or user_doc.get("fullName") if user_doc else None)
+                or (target_req.get("full_name") or target_req.get("name") if target_req else None)
+                or getattr(current_user, "name", None)
+                or "Employee"
+            )
+            phone = (
+                (target_req.get("phone") if target_req else None)
+                or (user_doc.get("phone") if user_doc else None)
+                or "--"
+            )
+            dept = (user_doc.get("department") if user_doc else None) or (target_req.get("department") if target_req else None) or "Operations"
+            desig = (user_doc.get("designation") if user_doc else None) or (target_req.get("designation") if target_req else None) or "Operations Associate"
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            emp = {
+                "id": canonical_id,
+                "uid": canonical_id,
+                "user_id": canonical_id,
+                "employeeId": canonical_code,
+                "employee_id": canonical_code,
+                "name": emp_name,
+                "fullName": emp_name,
+                "full_name": emp_name,
+                "email": user_email,
+                "phone": phone,
+                "role": "Employee",
+                "department": dept,
+                "designation": desig,
+                "status": "approved",
+                "shift": "General (09:30 AM - 06:30 PM)",
+                "location": "HQ Office",
+                "createdAt": now_iso,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            }
+            try:
+                FirestoreService.save("employees", canonical_id, emp)
+                logger.info(f"[Attendance] Successfully synchronized approved employee profile into 'employees' collection: {canonical_id} ({user_email})")
+            except Exception as save_err:
+                logger.warning(f"[Attendance] Could not persist employee document: {save_err}")
+
+        # Final validation of resolved emp object
+        emp_status = str(emp.get("status", "active")).strip().lower()
+        if emp_status in ["pending", "under_review", "pending_approval"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+            )
+        if emp_status == "rejected":
+            reason = emp.get("rejection_reason") or emp.get("rejectionReason")
+            msg = "Your registration request was not approved. Please contact company administration."
+            if reason:
+                msg += f" Reason: {reason}"
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=msg,
+            )
+        if emp_status in ["inactive", "disabled", "suspended"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your employee account is currently inactive. Please contact administration.",
+            )
+
+        resolved_id = str(emp.get("employee_id") or emp.get("employeeId") or user_emp_code or user_id)
+        resolved_uid = str(emp.get("uid") or emp.get("id") or user_id or resolved_id)
+        return emp, resolved_id, resolved_uid
+
+    else:
+        # PostgreSQL Backend
+        emp = None
+        if user_id:
+            emp = db.query(Employee).filter(Employee.user_id == user_id).first() if db else None
+        if not emp and user_email:
+            emp = db.query(Employee).filter(func.lower(func.trim(Employee.email)) == user_email).first() if db else None
+        if not emp and user_emp_code:
+            emp = db.query(Employee).filter(func.upper(func.trim(Employee.employee_id)) == user_emp_code.upper()).first() if db else None
+
+        if not emp:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found.")
+
+        emp_status = str(emp.status or "Active").strip().lower()
+        if emp_status in ["pending"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your registration is pending Admin approval. Please wait until your account is approved.",
+            )
+        if emp_status in ["rejected"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your registration request was not approved. Please contact company administration.",
+            )
+        if emp_status in ["inactive"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your employee account is currently inactive. Please contact administration.",
+            )
+
+        resolved_id = emp.employee_id
+        resolved_uid = str(emp.user_id or emp.employee_id)
+        return emp, resolved_id, resolved_uid
+
+
 @router.post("/check-in", status_code=status.HTTP_200_OK)
 async def check_in(
     request: Request,
@@ -791,6 +1092,7 @@ async def check_in(
         acc_val = form.get("accuracy")
         requested_work_mode = form.get("workMode")
         param_emp_id = form.get("employeeId")
+        late_reason_param = form.get("lateReason") or form.get("late_reason")
     else:
         try:
             body = await request.json()
@@ -807,6 +1109,7 @@ async def check_in(
             acc_val = body.get("accuracy")
             requested_work_mode = body.get("workMode")
             param_emp_id = body.get("employeeId")
+            late_reason_param = body.get("lateReason") or body.get("late_reason")
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -814,46 +1117,11 @@ async def check_in(
             )
 
     # 2. Resolve employee identity
-    emp_id = None
-    emp = None
-    if settings.DATABASE_BACKEND == "firebase":
-        if user_role == "employee":
-            emps = FirestoreService.query("employees", {"email": user_email})
-            if not emps and user_id:
-                emps = FirestoreService.query("employees", {"user_id": user_id})
-            if not emps and user_id:
-                doc = FirestoreService.get_by_id("employees", str(user_id))
-                if doc:
-                    emps = [doc]
-            if not emps:
-                raise HTTPException(status_code=404, detail="Employee profile not found.")
-            emp = emps[0]
-            emp_id = emp.get("employee_id") or emp.get("employeeId")
-            emp_uid = str(emp.get("uid") or emp.get("id") or user_id or emp_id)
-        elif user_role == "admin" and param_emp_id:
-            emp_id = str(param_emp_id).strip()
-            emps = FirestoreService.query("employees", {"employee_id": emp_id})
-            if not emps:
-                emps = FirestoreService.query("employees", {"employeeId": emp_id})
-            emp = emps[0] if emps else None
-            emp_uid = str(emp.get("uid") or emp.get("id") or emp_id) if emp else emp_id
-        else:
-            raise HTTPException(status_code=403, detail="Employee access required to punch attendance.")
-    else:
-        if user_role == "employee":
-            emp = db.query(Employee).filter(Employee.user_id == user_id).first()
-            if not emp:
-                emp = db.query(Employee).filter(Employee.email == user_email).first()
-            if not emp:
-                raise HTTPException(status_code=404, detail="Employee profile not found.")
-            emp_id = emp.employee_id
-            emp_uid = str(emp.user_id or emp_id)
-        elif user_role == "admin" and param_emp_id:
-            emp_id = str(param_emp_id).strip()
-            emp = db.query(Employee).filter(Employee.employee_id == emp_id).first()
-            emp_uid = str(emp.user_id or emp_id) if emp else emp_id
-        else:
-            raise HTTPException(status_code=403, detail="Employee access required to punch attendance.")
+    emp, emp_id, emp_uid = resolve_employee_for_attendance(
+        current_user=current_user,
+        param_emp_id=param_emp_id,
+        db=db,
+    )
 
     if not emp_id or not emp:
         raise HTTPException(status_code=404, detail="Target employee could not be identified.")
@@ -950,6 +1218,18 @@ async def check_in(
     late = is_checkin_late(now_local, db)
     att_status = "Late" if late else "Present"
 
+    clean_late_reason = str(late_reason_param or "").strip()
+    if late and not clean_late_reason:
+        cleanup_photo_file(storage_key)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "LATE_REASON_REQUIRED",
+                "message": "Check-in time is after 9:30 AM IST. A valid late check-in reason is mandatory before check-in can be completed.",
+                "isLate": True,
+            },
+        )
+
     # 8. Upload to Cloud Storage for Firebase and persist in Cloud Firestore
     emp_name = (
         emp.get("name") or emp.get("full_name") or emp.get("fullName") or "Employee"
@@ -970,6 +1250,9 @@ async def check_in(
             attendance_date=today_iso,
         )
 
+        # Cleanup temporary local validation photo file now that it is safely uploaded
+        cleanup_photo_file(storage_key)
+
         attendance_doc = {
             "id": record_id,
             "employee_id": emp_id,
@@ -986,18 +1269,18 @@ async def check_in(
             "status": att_status,
             "is_late": late,
             "isLate": late,
-            "late_reason": None,
-            "lateReason": None,
-            "late_reason_status": "PENDING" if late else "NOT_REQUIRED",
-            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
-            "late_reason_submitted_at": None,
-            "lateReasonSubmittedAt": None,
+            "late_reason": clean_late_reason if (late and clean_late_reason) else None,
+            "lateReason": clean_late_reason if (late and clean_late_reason) else None,
+            "late_reason_status": "SUBMITTED" if (late and clean_late_reason) else ("PENDING" if late else "NOT_REQUIRED"),
+            "lateReasonStatus": "SUBMITTED" if (late and clean_late_reason) else ("PENDING" if late else "NOT_REQUIRED"),
+            "late_reason_submitted_at": now_utc.isoformat() if (late and clean_late_reason) else None,
+            "lateReasonSubmittedAt": now_utc.isoformat() if (late and clean_late_reason) else None,
             "duration": "In Progress",
             "check_in_latitude": lat,
             "check_in_longitude": lon,
             "check_in_location_accuracy": acc,
             "office_location_verified": (work_mode == "WFO"),
-            "check_in_photo_key": storage_key,
+            "check_in_photo_key": storage_path,
             "check_in_photo_storage_path": storage_path,
             "checkInPhotoPath": storage_path,
             "check_in_photo_url": photo_url,
@@ -1042,9 +1325,9 @@ async def check_in(
                 "workMode": work_mode,
                 "lateLogin": late,
                 "isLate": late,
-                "lateReason": "",
-                "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
-                "lateReasonSubmittedAt": None,
+                "lateReason": clean_late_reason if (late and clean_late_reason) else "",
+                "lateReasonStatus": "SUBMITTED" if (late and clean_late_reason) else ("PENDING" if late else "NOT_REQUIRED"),
+                "lateReasonSubmittedAt": now_utc.isoformat() if (late and clean_late_reason) else None,
                 "checkInPhotoUrl": photo_url,
                 "photoCaptured": bool(photo_url),
             }
@@ -1066,9 +1349,9 @@ async def check_in(
             "workMode": work_mode,
             "status": att_status,
             "isLate": late,
-            "lateReason": None,
-            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
-            "lateReasonSubmittedAt": None,
+            "lateReason": clean_late_reason if (late and clean_late_reason) else None,
+            "lateReasonStatus": "SUBMITTED" if (late and clean_late_reason) else ("PENDING" if late else "NOT_REQUIRED"),
+            "lateReasonSubmittedAt": now_utc.isoformat() if (late and clean_late_reason) else None,
             "timestamp": now_utc.isoformat(),
             "hasCheckInPhoto": True,
             "photoUrl": photo_url,
@@ -1094,8 +1377,8 @@ async def check_in(
             existing.work_mode = work_mode
             existing.status = att_status
             existing.is_late = late
-            existing.late_reason = None
-            existing.late_reason_submitted_at = None
+            existing.late_reason = clean_late_reason if (late and clean_late_reason) else None
+            existing.late_reason_submitted_at = now_utc if (late and clean_late_reason) else None
             existing.duration = "In Progress"
             record = existing
         else:
@@ -1113,8 +1396,8 @@ async def check_in(
                 work_mode=work_mode,
                 status=att_status,
                 is_late=late,
-                late_reason=None,
-                late_reason_submitted_at=None,
+                late_reason=clean_late_reason if (late and clean_late_reason) else None,
+                late_reason_submitted_at=now_utc if (late and clean_late_reason) else None,
                 duration="In Progress",
             )
             db.add(record)
@@ -1132,9 +1415,9 @@ async def check_in(
             "workMode": work_mode,
             "status": att_status,
             "isLate": late,
-            "lateReason": None,
-            "lateReasonStatus": "PENDING" if late else "NOT_REQUIRED",
-            "lateReasonSubmittedAt": None,
+            "lateReason": clean_late_reason if (late and clean_late_reason) else None,
+            "lateReasonStatus": "SUBMITTED" if (late and clean_late_reason) else ("PENDING" if late else "NOT_REQUIRED"),
+            "lateReasonSubmittedAt": now_utc.isoformat() if (late and clean_late_reason) else None,
             "timestamp": now_utc.isoformat(),
             "hasCheckInPhoto": True,
             "checkInLatitude": lat,
@@ -1558,39 +1841,16 @@ def submit_late_reason(
     # 1. Resolve employee identity from session
     emp_id = None
     emp_uid = None
-    if settings.DATABASE_BACKEND == "firebase":
-        if user_role == "employee":
-            emps = FirestoreService.query("employees", {"email": user_email})
-            if not emps and user_id:
-                emps = FirestoreService.query("employees", {"user_id": user_id})
-            if not emps and user_id:
-                doc = FirestoreService.get_by_id("employees", str(user_id))
-                if doc:
-                    emps = [doc]
-            if not emps:
-                raise HTTPException(status_code=404, detail="Employee profile not found.")
-            emp = emps[0]
-            emp_id = emp.get("employee_id") or emp.get("employeeId")
-            emp_uid = str(emp.get("uid") or emp.get("id") or user_id or emp_id)
-        elif user_role == "admin":
-            emp_id = None
-            emp_uid = None
-        else:
-            raise HTTPException(status_code=403, detail="Employee access required.")
+    if user_role == "employee":
+        emp, emp_id, emp_uid = resolve_employee_for_attendance(
+            current_user=current_user,
+            db=db,
+        )
+    elif user_role == "admin":
+        emp_id = None
+        emp_uid = None
     else:
-        if user_role == "employee":
-            emp = db.query(Employee).filter(Employee.user_id == user_id).first()
-            if not emp:
-                emp = db.query(Employee).filter(Employee.email == user_email).first()
-            if not emp:
-                raise HTTPException(status_code=404, detail="Employee profile not found.")
-            emp_id = emp.employee_id
-            emp_uid = str(emp.user_id or emp_id)
-        elif user_role == "admin":
-            emp_id = None
-            emp_uid = None
-        else:
-            raise HTTPException(status_code=403, detail="Employee access required.")
+        raise HTTPException(status_code=403, detail="Employee access required.")
 
     target_id = attendance_id or payload.attendanceId
     today_iso = get_attendance_today().isoformat()

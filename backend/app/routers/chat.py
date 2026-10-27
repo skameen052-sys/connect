@@ -1,8 +1,10 @@
 import json
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Set
-from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect, UploadFile, File
 from pydantic import BaseModel
 
 from app.services.firestore_service import firestore_service, FirestoreService
@@ -13,6 +15,14 @@ from app.core.firebase import verify_firebase_token
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/chat", tags=["Teams Chat"])
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "chat_uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".csv", ".zip"
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # ==============================================================================
@@ -154,6 +164,20 @@ class MarkReadRequest(BaseModel):
     target_id: str
 
 
+class MessageUpdate(BaseModel):
+    content: str
+
+
+class GroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    member_ids: Optional[List[str]] = []
+
+
+class MemberAction(BaseModel):
+    user_id: str
+
+
 # ==============================================================================
 # REST Endpoints
 # ==============================================================================
@@ -232,12 +256,14 @@ def get_teams_for_chat(current_user=Depends(get_current_user)):
     """
     List all teams accessible to the user for team channels.
     Admins have access to all teams; employees have access to teams they belong to
-    plus company-wide general teams.
+    plus company-wide general teams and department channels.
     """
     my_ids = get_user_identifiers(current_user)
+    my_keys = set(get_all_user_keys(my_ids))
     is_admin = my_ids["role"] == "admin"
     my_name = my_ids["name"].strip().lower()
     my_emp_id = my_ids["employee_id"].strip().lower()
+    my_email = my_ids["email"].strip().lower()
 
     all_teams = firestore_service.list_documents("teams")
     accessible_teams = []
@@ -249,7 +275,6 @@ def get_teams_for_chat(current_user=Depends(get_current_user)):
         if not isinstance(members, list):
             members = []
 
-        # Check membership
         is_member = False
         if is_admin:
             is_member = True
@@ -258,7 +283,7 @@ def get_teams_for_chat(current_user=Depends(get_current_user)):
         else:
             for m in members:
                 m_str = str(m).strip().lower()
-                if m_str == my_name or m_str == my_emp_id:
+                if m_str in my_keys or any(k and (k in m_str or m_str in k) for k in [my_name, my_emp_id, my_email]):
                     is_member = True
                     break
 
@@ -266,12 +291,14 @@ def get_teams_for_chat(current_user=Depends(get_current_user)):
             accessible_teams.append({
                 "id": t_id,
                 "name": t_name,
-                "department": t.get("department", "Operations"),
+                "department": t.get("department", "Company"),
                 "description": t.get("description", ""),
-                "leader": t.get("leader", "Unassigned"),
+                "leader": t.get("leader", "Administrator"),
                 "members": members,
                 "member_count": len(members),
                 "is_admin": is_admin,
+                "is_custom_group": bool(t.get("is_custom_group", False)),
+                "created_by": t.get("created_by", ""),
             })
 
     accessible_teams.sort(key=lambda x: (not ("general" in x["name"].lower()), x["name"].lower()))
@@ -294,12 +321,8 @@ def get_conversations(current_user=Depends(get_current_user)):
 
     # 2. Fetch accessible teams
     accessible_teams = get_teams_for_chat(current_user)
-    team_map = {str(t["id"]): t for t in accessible_teams}
-    # Also map team by name
-    for t in accessible_teams:
-        team_map[t["name"].lower()] = t
-
     conversations_dict: Dict[str, Dict[str, Any]] = {}
+    team_key_to_cid: Dict[str, str] = {}
 
     # Seed all accessible teams as conversation channels
     for t in accessible_teams:
@@ -319,6 +342,8 @@ def get_conversations(current_user=Depends(get_current_user)):
             "is_pinned": "general" in t["name"].lower(),
             "is_online": False,
         }
+        team_key_to_cid[str(t["id"]).lower()] = cid
+        team_key_to_cid[str(t["name"]).lower()] = cid
 
     # Track direct contacts who have exchanged messages
     direct_conversations: Dict[str, Dict[str, Any]] = {}
@@ -334,13 +359,14 @@ def get_conversations(current_user=Depends(get_current_user)):
         is_unread = not bool(my_keys.intersection(read_by_norm))
 
         if c_type == "team":
-            # Match team conversation
-            t_key = str(msg.get("team_id") or msg.get("target_id", "")).strip()
-            cid = f"team_{t_key}"
-            if cid in conversations_dict:
-                conv = conversations_dict[cid]
+            t_id_val = str(msg.get("team_id") or msg.get("target_id", "")).strip().lower()
+            t_name_val = str(msg.get("team_name", "")).strip().lower()
+            matched_cid = team_key_to_cid.get(t_id_val) or team_key_to_cid.get(t_name_val)
+
+            if matched_cid and matched_cid in conversations_dict:
+                conv = conversations_dict[matched_cid]
                 if conv["last_message"] == "No messages yet":
-                    conv["last_message"] = msg.get("content", "")
+                    conv["last_message"] = msg.get("content", "") or ("Shared an attachment" if msg.get("attachments") else "")
                     conv["last_message_sender"] = msg.get("sender_name", "")
                     conv["last_message_at"] = msg.get("created_at", "")
                 if is_unread and sender_id not in my_keys:
@@ -423,6 +449,17 @@ def get_messages(
     target_clean = str(target_id).strip()
     target_norm = target_clean.lower()
 
+    # Resolve team alias keys if team chat
+    team_keys = {target_norm}
+    if chat_type == "team":
+        all_teams = firestore_service.list_documents("teams")
+        for t in all_teams:
+            t_id_l = str(t.get("id")).lower()
+            t_name_l = str(t.get("name") or t.get("teamName", "")).lower()
+            if target_norm in [t_id_l, t_name_l]:
+                team_keys.add(t_id_l)
+                team_keys.add(t_name_l)
+
     all_msgs = firestore_service.list_documents("chat_messages")
     filtered: List[Dict[str, Any]] = []
     messages_to_mark_read: List[str] = []
@@ -433,11 +470,10 @@ def get_messages(
             continue
 
         if chat_type == "team":
-            # Match team_id or target_id
             m_team_id = str(msg.get("team_id") or msg.get("target_id", "")).strip().lower()
-            if m_team_id == target_norm:
+            m_team_name = str(msg.get("team_name", "")).strip().lower()
+            if m_team_id in team_keys or m_team_name in team_keys:
                 filtered.append(msg)
-                # Check unread
                 read_by = msg.get("read_by", [])
                 if not isinstance(read_by, list):
                     read_by = []
@@ -496,21 +532,22 @@ async def send_message(
     clean_target = payload.target_id.strip()
 
     team_name = ""
+    canonical_target_id = clean_target
     recipient_name = ""
     recipient_keys: List[str] = []
 
     if payload.chat_type == "team":
-        # Resolve team details and member keys
-        team = firestore_service.get_document("teams", clean_target)
-        if not team:
-            all_teams = firestore_service.list_documents("teams")
-            for t in all_teams:
-                if str(t.get("id")) == clean_target or (t.get("name") or "").lower() == clean_target.lower():
-                    team = t
-                    break
+        team = None
+        all_teams = firestore_service.list_documents("teams")
+        for t in all_teams:
+            t_id_l = str(t.get("id")).lower()
+            t_name_l = str(t.get("name") or t.get("teamName", "")).lower()
+            if clean_target.lower() in [t_id_l, t_name_l]:
+                team = t
+                break
         if team:
+            canonical_target_id = str(team.get("id"))
             team_name = team.get("name") or team.get("teamName") or "Team Channel"
-            # Team broadcast targets: all members + administrators
             members = team.get("members", [])
             for m in members:
                 recipient_keys.append(str(m).strip().lower())
@@ -519,7 +556,6 @@ async def send_message(
     else:
         # Direct message
         recipient_keys = [clean_target.lower()]
-        # Resolve recipient display name
         if clean_target.lower() in ["admin", "adm-001", "admin@arshith.com"]:
             recipient_name = "Administrator"
             recipient_keys.extend(["admin", "adm-001", "admin@arshith.com"])
@@ -538,14 +574,14 @@ async def send_message(
 
     msg_data = {
         "chat_type": payload.chat_type,
-        "target_id": clean_target,
-        "team_id": clean_target if payload.chat_type == "team" else None,
+        "target_id": canonical_target_id,
+        "team_id": canonical_target_id if payload.chat_type == "team" else None,
         "team_name": team_name,
         "sender_id": my_ids["primary_id"],
         "sender_name": my_ids["name"],
         "sender_role": my_ids["role"],
         "sender_avatar": my_ids["name"][0].upper() if my_ids["name"] else "U",
-        "receiver_id": clean_target,
+        "receiver_id": canonical_target_id,
         "receiver_name": recipient_name or team_name,
         "content": content,
         "attachments": payload.attachments or [],
@@ -565,9 +601,13 @@ async def send_message(
         "type": "new_message",
         "message": msg_data,
     }
-    # Send to recipients + sender's own devices
-    all_targets = list(set(recipient_keys + get_all_user_keys(my_ids)))
-    await manager.broadcast_to_keys(all_targets, event_payload)
+    if payload.chat_type == "team":
+        # Broadcast team messages to ALL connected sockets for instant channel updates
+        await manager.broadcast_all(event_payload)
+    else:
+        # Direct message: send to target and sender
+        all_targets = list(set(recipient_keys + get_all_user_keys(my_ids)))
+        await manager.broadcast_to_keys(all_targets, event_payload)
 
     return msg_data
 
@@ -748,6 +788,247 @@ def get_unread_count(current_user=Depends(get_current_user)):
             unread += 1
 
     return {"total_unread": unread}
+
+
+@router.patch("/messages/{message_id}", response_model=Dict[str, Any])
+async def update_message(
+    message_id: str,
+    payload: MessageUpdate,
+    current_user=Depends(get_current_user),
+):
+    """Edit an existing message. Only message author or administrator can edit."""
+    my_ids = get_user_identifiers(current_user)
+    my_keys = set(get_all_user_keys(my_ids))
+    doc = firestore_service.get_document("chat_messages", message_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    sender_id = str(doc.get("sender_id", "")).strip().lower()
+    is_admin = my_ids["role"] == "admin"
+    if sender_id not in my_keys and not is_admin:
+        raise HTTPException(status_code=403, detail="You can only edit your own messages.")
+
+    new_content = payload.content.strip()
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    updates = {
+        "content": new_content,
+        "is_edited": True,
+        "updated_at": now_iso,
+    }
+    firestore_service.update_document("chat_messages", message_id, updates)
+    doc.update(updates)
+
+    event = {
+        "type": "message_edited",
+        "message_id": message_id,
+        "content": new_content,
+        "is_edited": True,
+        "updated_at": now_iso,
+    }
+    await manager.broadcast_all(event)
+    return {"success": True, "message": doc}
+
+
+@router.post("/attachments/upload", response_model=Dict[str, Any])
+async def upload_chat_attachment(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Secure attachment upload for images, documents, spreadsheets, and PDFs."""
+    filename = file.filename or "attachment"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File extension '{ext}' is not permitted. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum allowed limit of 10MB.")
+
+    safe_name = f"{uuid.uuid4().hex[:12]}_{filename.replace(' ', '_')}"
+    target_path = os.path.join(UPLOAD_DIR, safe_name)
+    with open(target_path, "wb") as f:
+        f.write(contents)
+
+    is_image = ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]
+    file_info = {
+        "url": f"/static/chat_uploads/{safe_name}",
+        "filename": filename,
+        "file_size": len(contents),
+        "content_type": file.content_type or ("image/" + ext[1:] if is_image else "application/octet-stream"),
+        "is_image": is_image,
+    }
+    return file_info
+
+
+@router.post("/conversations/group", response_model=Dict[str, Any])
+async def create_group_channel(
+    payload: GroupCreate,
+    current_user=Depends(get_current_user),
+):
+    """Create a new team group chat channel."""
+    my_ids = get_user_identifiers(current_user)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required.")
+
+    # Collect members: creator + provided member IDs
+    members = list(set([my_ids["primary_id"]] + [str(m).strip() for m in (payload.member_ids or []) if str(m).strip()]))
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    group_data = {
+        "name": name,
+        "teamName": name,
+        "description": payload.description.strip() if payload.description else "",
+        "department": "Custom Group",
+        "leader": my_ids["name"],
+        "created_by": my_ids["primary_id"],
+        "created_at": now_iso,
+        "members": members,
+        "is_custom_group": True,
+    }
+    team_id = firestore_service.create_document("teams", group_data)
+    group_data["id"] = team_id
+
+    # Post initial system message
+    sys_msg = {
+        "chat_type": "team",
+        "target_id": str(team_id),
+        "team_id": str(team_id),
+        "team_name": name,
+        "sender_id": "SYSTEM",
+        "sender_name": "System",
+        "sender_role": "system",
+        "sender_avatar": "⚙️",
+        "receiver_id": str(team_id),
+        "receiver_name": name,
+        "content": f"Group '{name}' was created by {my_ids['name']}.",
+        "attachments": [],
+        "reply_to": None,
+        "reactions": {},
+        "is_pinned": False,
+        "read_by": [my_ids["primary_id"]],
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    s_id = firestore_service.create_document("chat_messages", sys_msg)
+    sys_msg["id"] = s_id
+
+    await manager.broadcast_all({
+        "type": "new_team",
+        "team": group_data,
+    })
+    return group_data
+
+
+@router.post("/conversations/{group_id}/members", response_model=Dict[str, Any])
+async def add_group_member(
+    group_id: str,
+    payload: MemberAction,
+    current_user=Depends(get_current_user),
+):
+    """Add an employee member to a team group channel."""
+    my_ids = get_user_identifiers(current_user)
+    team = firestore_service.get_document("teams", group_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    members = team.get("members", [])
+    if not isinstance(members, list):
+        members = []
+
+    target_user = payload.user_id.strip()
+    if target_user not in members:
+        members.append(target_user)
+        firestore_service.update_document("teams", group_id, {"members": members})
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        sys_msg = {
+            "chat_type": "team",
+            "target_id": group_id,
+            "team_id": group_id,
+            "team_name": team.get("name", "Group"),
+            "sender_id": "SYSTEM",
+            "sender_name": "System",
+            "sender_role": "system",
+            "sender_avatar": "⚙️",
+            "receiver_id": group_id,
+            "receiver_name": team.get("name", "Group"),
+            "content": f"{target_user} was added to the group by {my_ids['name']}.",
+            "attachments": [],
+            "reply_to": None,
+            "reactions": {},
+            "is_pinned": False,
+            "read_by": [my_ids["primary_id"]],
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        s_id = firestore_service.create_document("chat_messages", sys_msg)
+        sys_msg["id"] = s_id
+        await manager.broadcast_all({"type": "new_message", "message": sys_msg})
+
+    return {"success": True, "members": members}
+
+
+@router.delete("/conversations/{group_id}/members/{user_id}", response_model=Dict[str, Any])
+async def remove_group_member(
+    group_id: str,
+    user_id: str,
+    current_user=Depends(get_current_user),
+):
+    """Remove a member from a group, or leave the group."""
+    my_ids = get_user_identifiers(current_user)
+    team = firestore_service.get_document("teams", group_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    target_user = user_id.strip()
+    is_self = user_matches_target(my_ids, target_user)
+    is_admin = my_ids["role"] == "admin"
+    created_by = str(team.get("created_by", "")).lower()
+
+    if not is_self and not is_admin and created_by != my_ids["primary_id"].lower():
+        raise HTTPException(status_code=403, detail="Permission denied to remove member.")
+
+    members = team.get("members", [])
+    if not isinstance(members, list):
+        members = []
+
+    new_members = [m for m in members if str(m).strip().lower() != target_user.lower()]
+    firestore_service.update_document("teams", group_id, {"members": new_members})
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    action_str = f"{target_user} left the group." if is_self else f"{target_user} was removed by {my_ids['name']}."
+    sys_msg = {
+        "chat_type": "team",
+        "target_id": group_id,
+        "team_id": group_id,
+        "team_name": team.get("name", "Group"),
+        "sender_id": "SYSTEM",
+        "sender_name": "System",
+        "sender_role": "system",
+        "sender_avatar": "⚙️",
+        "receiver_id": group_id,
+        "receiver_name": team.get("name", "Group"),
+        "content": action_str,
+        "attachments": [],
+        "reply_to": None,
+        "reactions": {},
+        "is_pinned": False,
+        "read_by": [my_ids["primary_id"]],
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    s_id = firestore_service.create_document("chat_messages", sys_msg)
+    sys_msg["id"] = s_id
+    await manager.broadcast_all({"type": "new_message", "message": sys_msg})
+
+    return {"success": True, "members": new_members}
 
 
 # ==============================================================================

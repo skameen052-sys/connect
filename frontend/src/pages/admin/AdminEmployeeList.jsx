@@ -253,8 +253,8 @@ export default function AdminEmployeeList() {
                               border: '1px solid #c7d2fe',
                               color: '#4f46e5',
                             }}
-                            onClick={() => navigate(`/admin/chat?user=${encodeURIComponent(emp.id || emp.employeeId || emp.email)}`)}
-                            title={`Chat with ${empName} on Teams`}
+                            onClick={() => navigate(`/admin/chat?user=${encodeURIComponent(empId)}`)}
+                            title="Chat with Employee"
                           >
                             <MessageSquare size={13} />
                             <span>Chat</span>

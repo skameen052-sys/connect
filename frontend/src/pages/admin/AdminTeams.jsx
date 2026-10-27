@@ -340,7 +340,7 @@ export default function AdminTeams() {
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button
                     type="button"
-                    onClick={() => navigate(`/admin/chat?team=${encodeURIComponent(t.id || t.name)}`)}
+                    onClick={() => navigate(`/admin/chat?team=${encodeURIComponent(t.id)}`)}
                     style={{
                       backgroundColor: '#eef2ff',
                       border: '1px solid #c7d2fe',
@@ -348,17 +348,16 @@ export default function AdminTeams() {
                       padding: '6px 12px',
                       borderRadius: '8px',
                       fontSize: '0.75rem',
-                      fontWeight: '700',
+                      fontWeight: '600',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '5px',
-                      transition: 'all 0.15s ease',
+                      gap: '4px',
                     }}
-                    title="Open this team's chat channel"
+                    title="Open Team Chat Channel"
                   >
                     <MessageSquare size={13} />
-                    <span>Chat in Team</span>
+                    <span>Channel</span>
                   </button>
 
                   <button

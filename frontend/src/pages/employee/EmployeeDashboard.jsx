@@ -37,9 +37,20 @@ import { separationService } from '../../services/separationService';
 import { loanService } from '../../services/loanService';
 import { payslipService } from '../../services/payslipService';
 import { authService } from '../../services/authService';
+import { notificationService } from '../../services/notificationService';
 
 export default function EmployeeDashboard() {
   const navigate = useNavigate();
+
+  const storedUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('arshith_user')) || null;
+    } catch {
+      return null;
+    }
+  })();
+  const userGreetingName = storedUser?.name ? storedUser.name.split(' ')[0].toLowerCase() : 'employee';
+  const employeeId = storedUser?.employeeId || storedUser?.employee_id || storedUser?.id || storedUser?.uid || '';
 
   // Modals for Quick Actions
   const [activeModal, setActiveModal] = useState(null); // 'announcements' | 'meetings' | 'assignments' | 'leaves'
@@ -55,15 +66,26 @@ export default function EmployeeDashboard() {
   const [latestPayslip, setLatestPayslip] = useState(null);
   const [downloadingPayslip, setDownloadingPayslip] = useState(false);
 
-  const storedUser = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('arshith_user')) || null;
-    } catch {
-      return null;
-    }
-  })();
-  const userGreetingName = storedUser?.name ? storedUser.name.split(' ')[0].toLowerCase() : 'employee';
-  const employeeId = storedUser?.employeeId || storedUser?.employee_id || storedUser?.id || storedUser?.uid || '';
+  // Dynamic notification counts for Quick Actions
+  const [unreadCounts, setUnreadCounts] = useState(
+    notificationService.getCachedCounts()
+  );
+
+  useEffect(() => {
+    const unsub = notificationService.subscribe((summary) => {
+      setUnreadCounts(summary);
+    });
+    return () => unsub();
+  }, [employeeId]);
+
+  const handleOpenQuickAction = (modalKey) => {
+    setActiveModal(modalKey);
+    notificationService.markAsRead(modalKey);
+    setUnreadCounts((prev) => ({
+      ...prev,
+      [modalKey]: 0,
+    }));
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -560,28 +582,32 @@ export default function EmployeeDashboard() {
             icon={Bell}
             iconBg="#f3f0ff"
             iconColor="#6941c6"
-            onClick={() => setActiveModal('announcements')}
+            badgeCount={unreadCounts?.announcements || 0}
+            onClick={() => handleOpenQuickAction('announcements')}
           />
           <QuickActionCard
             title="Meetings"
             icon={Calendar}
             iconBg="#e0f2fe"
             iconColor="#0284c7"
-            onClick={() => setActiveModal('meetings')}
+            badgeCount={unreadCounts?.meetings || 0}
+            onClick={() => handleOpenQuickAction('meetings')}
           />
           <QuickActionCard
             title="Work Assignments"
             icon={Briefcase}
             iconBg="#ecfdf5"
             iconColor="#0d9488"
-            onClick={() => setActiveModal('assignments')}
+            badgeCount={unreadCounts?.assignments || 0}
+            onClick={() => handleOpenQuickAction('assignments')}
           />
           <QuickActionCard
             title="Leave Management"
             icon={FileText}
             iconBg="#fff7ed"
             iconColor="#ea580c"
-            onClick={() => setActiveModal('leaves')}
+            badgeCount={unreadCounts?.leaves || 0}
+            onClick={() => handleOpenQuickAction('leaves')}
           />
         </div>
       </section>
@@ -802,6 +828,7 @@ export default function EmployeeDashboard() {
       <ApplyLeaveModal
         isOpen={activeModal === 'leaves'}
         onClose={() => setActiveModal(null)}
+        recentDecisions={notificationService.getDecidedLeaves()}
       />
     </div>
   );

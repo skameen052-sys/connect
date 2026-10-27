@@ -272,17 +272,26 @@ def update_my_profile(
 ):
     """Update permitted personal details for currently authenticated employee."""
     emp_id = getattr(employee, "employee_id", None) or getattr(employee, "employeeId", None)
+    emp_uid = getattr(employee, "uid", None) or getattr(employee, "id", None)
 
     if settings.DATABASE_BACKEND == "firebase":
-        emp = FirestoreService.get_by_id("employees", emp_id)
+        emp = FirestoreService.get_by_id("employees", emp_id) if emp_id else None
+        if not emp and emp_uid:
+            emp = FirestoreService.get_by_id("employees", str(emp_uid))
+        if not emp:
+            matches = FirestoreService.query("employees", {"email": str(getattr(employee, "email", "")).lower().strip()})
+            if matches:
+                emp = matches[0]
         if not emp:
             raise HTTPException(status_code=404, detail="Employee profile not found.")
+        target_doc_id = emp.get("_firestore_id") or emp.get("id") or emp_id or emp_uid
         updates = {}
         if data.phone is not None:
             updates["phone"] = data.phone.strip()
         if data.fullName or data.name:
             updates["full_name"] = (data.fullName or data.name).strip()
-        FirestoreService.update("employees", emp_id, updates)
+            updates["name"] = (data.fullName or data.name).strip()
+        FirestoreService.update("employees", str(target_doc_id), updates)
         emp.update(updates)
         return format_employee_response(emp)
 

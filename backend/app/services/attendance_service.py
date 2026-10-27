@@ -184,12 +184,20 @@ def get_employee_authorized_work_mode(employee) -> str:
         )
 
     # Check direct work_mode attribute if present
-    explicit_mode = getattr(employee, "work_mode", None)
+    explicit_mode = (
+        (employee.get("work_mode") or employee.get("workMode"))
+        if isinstance(employee, dict)
+        else getattr(employee, "work_mode", getattr(employee, "workMode", None))
+    )
     if explicit_mode and str(explicit_mode).strip().upper() in ["WFO", "WFH"]:
         return str(explicit_mode).strip().upper()
 
     # Derive from employee location setting
-    loc = getattr(employee, "location", None)
+    loc = (
+        employee.get("location")
+        if isinstance(employee, dict)
+        else getattr(employee, "location", None)
+    )
     if not loc or not str(loc).strip():
         return "WFO"
 
@@ -371,14 +379,9 @@ def upload_to_firebase_storage(
 ) -> Tuple[str, str]:
     """
     Upload real attendance photograph bytes to Cloud Storage for Firebase.
-    Uploads to:
-    1. Primary path matching Android app / Firebase Console preview:
-       attendancePhotos/{target_id}/{attendance_date}.jpg
-    2. Record-specific compatibility path:
-       attendancePhotos/{target_id}/{attendance_record_id}.jpg
-    3. Canonical storage path:
-       attendance/{target_id}/{attendance_record_id}/{photo_type}.jpg
-    Returns (primary_storage_path, photo_url).
+    Uploads exactly once to the single canonical storage path:
+       attendancePhotos/{target_id}/{date_str}.jpg
+    Returns (canonical_storage_path, photo_url).
     """
     from datetime import timedelta
     from app.core.firebase import get_storage_bucket, is_firebase_live
@@ -389,14 +392,12 @@ def upload_to_firebase_storage(
     if not date_str and "_" in str(attendance_record_id):
         date_str = str(attendance_record_id).split("_", 1)[1]
 
-    # Primary storage path matching reference screenshot: attendancePhotos/{userId}/{date}.jpg
+    # Canonical storage path matching reference screenshot & Android mobile app:
+    # attendancePhotos/{userId}/{date}.jpg
     if date_str:
-        primary_path = f"attendancePhotos/{target_id}/{date_str}{ext}"
+        canonical_path = f"attendancePhotos/{target_id}/{date_str}{ext}"
     else:
-        primary_path = f"attendancePhotos/{target_id}/{attendance_record_id}{ext}"
-
-    record_path = f"attendancePhotos/{target_id}/{attendance_record_id}{ext}"
-    canonical_path = f"attendance/{target_id}/{attendance_record_id}/{photo_type}{ext}"
+        canonical_path = f"attendancePhotos/{target_id}/{attendance_record_id}{ext}"
 
     if is_firebase_live():
         bucket = get_storage_bucket()
@@ -404,33 +405,18 @@ def upload_to_firebase_storage(
             raise RuntimeError("Cloud Storage bucket is not available or not initialized.")
 
         try:
-            # 1. Upload to primary path (for Firebase Console attendancePhotos/{userId}/{date}.jpg preview)
-            blob = bucket.blob(primary_path)
+            # Upload exactly once to canonical storage path
+            blob = bucket.blob(canonical_path)
             blob.upload_from_string(photo_bytes, content_type=mime_type)
 
-            # 2. Upload to record_path if distinct
-            if record_path != primary_path:
-                try:
-                    r_blob = bucket.blob(record_path)
-                    r_blob.upload_from_string(photo_bytes, content_type=mime_type)
-                except Exception as e_r:
-                    logger.warning(f"Note: record path upload warning: {e_r}")
-
-            # 3. Upload to canonical path
-            try:
-                c_blob = bucket.blob(canonical_path)
-                c_blob.upload_from_string(photo_bytes, content_type=mime_type)
-            except Exception as e_c:
-                logger.warning(f"Note: canonical path upload warning: {e_c}")
-
-            # 4. Generate signed URL for authenticated display
+            # Generate signed URL for authenticated display or direct media link
             try:
                 photo_url = blob.generate_signed_url(expiration=timedelta(days=7), method="GET")
             except Exception:
-                photo_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{primary_path.replace('/', '%2F')}?alt=media"
+                photo_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{canonical_path.replace('/', '%2F')}?alt=media"
 
-            logger.info(f"Successfully uploaded photograph ({len(photo_bytes)} bytes) to Cloud Storage: {primary_path}")
-            return primary_path, photo_url
+            logger.info(f"Successfully uploaded photograph ({len(photo_bytes)} bytes) to Cloud Storage: {canonical_path}")
+            return canonical_path, photo_url
         except Exception as e:
             logger.error(f"Failed to upload photo to Cloud Storage bucket: {e}")
             raise RuntimeError(f"Cloud Storage photograph upload failed: {e}")
@@ -445,4 +431,4 @@ def upload_to_firebase_storage(
         f.write(photo_bytes)
 
     local_url = f"/api/attendance/{attendance_record_id}/photo/{photo_type}"
-    return primary_path, local_url
+    return canonical_path, local_url

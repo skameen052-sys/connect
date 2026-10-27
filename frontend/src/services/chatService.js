@@ -97,6 +97,60 @@ export const chatService = {
   },
 
   /**
+   * Edit an existing message (author or admin)
+   */
+  async editMessage(messageId, content) {
+    const res = await api.patch(`/api/chat/messages/${messageId}`, {
+      content,
+    });
+    return res.data;
+  },
+
+  /**
+   * Upload attachment (image, pdf, document, spreadsheet)
+   */
+  async uploadAttachment(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await api.post('/api/chat/attachments/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return res.data;
+  },
+
+  /**
+   * Create a new team group channel
+   */
+  async createGroup({ name, description = '', memberIds = [] }) {
+    const res = await api.post('/api/chat/conversations/group', {
+      name,
+      description,
+      member_ids: memberIds,
+    });
+    return res.data;
+  },
+
+  /**
+   * Add member to a team group channel
+   */
+  async addGroupMember(groupId, userId) {
+    const res = await api.post(`/api/chat/conversations/${groupId}/members`, {
+      user_id: userId,
+    });
+    return res.data;
+  },
+
+  /**
+   * Remove member from a group channel or leave group
+   */
+  async removeGroupMember(groupId, userId) {
+    const res = await api.delete(`/api/chat/conversations/${groupId}/members/${userId}`);
+    return res.data;
+  },
+
+  /**
    * Mark all messages in a conversation as read
    */
   async markRead(chatType, targetId) {

@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, RefreshCw, Check, X, MapPin, AlertTriangle, Loader2, ShieldCheck, MapPinOff, Home, Play, ExternalLink } from 'lucide-react';
+import { Camera, RefreshCw, Check, X, MapPin, AlertTriangle, Loader2, ShieldCheck, MapPinOff, Home, Play, ExternalLink, Clock } from 'lucide-react';
 import { attendanceService } from '../../services/attendanceService';
+
+// Determine if current local time in Asia/Kolkata is past 9:30 AM IST
+const checkIsLateIST = () => {
+  try {
+    const istTime = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    const [h, m] = istTime.split(':').map(Number);
+    return (h * 60 + m) > (9 * 60 + 30);
+  } catch (e) {
+    const d = new Date();
+    return (d.getHours() * 60 + d.getMinutes()) > (9 * 60 + 30);
+  }
+};
 
 export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSuccess, workMode = 'WFO' }) {
   // Steps: 'location' -> 'camera' -> 'preview'
@@ -27,6 +44,19 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  // Late check-in reason state
+  const [isLateCheckIn, setIsLateCheckIn] = useState(checkIsLateIST);
+  const [lateReason, setLateReason] = useState('');
+
+  // Reset late reason and check IST time on open
+  useEffect(() => {
+    if (isOpen) {
+      setIsLateCheckIn(checkIsLateIST());
+      setLateReason('');
+      setSubmitError('');
+    }
+  }, [isOpen]);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -682,6 +712,17 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
       }
       formData.append('workMode', workMode);
 
+      // Validate and append mandatory late reason if checking in after 9:30 AM IST
+      if (isLateCheckIn) {
+        const trimmedReason = (lateReason || '').trim();
+        if (!trimmedReason) {
+          setSubmitError('Please provide a valid reason for your late arrival before confirming check-in.');
+          setIsSubmitting(false);
+          return;
+        }
+        formData.append('lateReason', trimmedReason);
+      }
+
       const res = await attendanceService.checkIn(formData);
 
       if (!res || !res.success || !res.hasCheckInPhoto) {
@@ -695,7 +736,18 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
       onClose();
     } catch (err) {
       console.error('Check-in submission failed', err);
-      setSubmitError(err.message || 'Check-in failed. Please retry.');
+      const isLateErr =
+        err?.status === 400 &&
+        (err?.message?.includes('9:30 AM') ||
+         err?.message?.includes('late check-in reason') ||
+         err?.code === 'LATE_REASON_REQUIRED' ||
+         err?.detail?.code === 'LATE_REASON_REQUIRED');
+      if (isLateErr) {
+        setIsLateCheckIn(true);
+        setSubmitError('Check-in time is after 9:30 AM IST. Please provide your reason for late arrival above to proceed.');
+      } else {
+        setSubmitError(err.message || 'Check-in failed. Please retry.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1149,6 +1201,54 @@ export default function AttendanceCheckInModal({ isOpen, onClose, onCheckInSucce
                   <span>Selfie Captured</span>
                 </div>
               </div>
+
+              {/* Late Check-in Reason Input (Mandatory when after 9:30 AM IST) */}
+              {isLateCheckIn && (
+                <div
+                  className="late-reason-input-card animate-fade-in"
+                  style={{
+                    marginTop: '14px',
+                    padding: '12px 14px',
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    borderRadius: '12px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                    <Clock size={16} color="#b45309" />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#92400e' }}>
+                      Late Check-in Reason (Required after 9:30 AM IST) <span style={{ color: '#dc2626' }}>*</span>
+                    </span>
+                  </div>
+                  <textarea
+                    id="late-checkin-reason-input"
+                    value={lateReason}
+                    onChange={(e) => {
+                      setLateReason(e.target.value);
+                      if (submitError) setSubmitError('');
+                    }}
+                    placeholder="Please explain why your check-in is after 9:30 AM..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: submitError && !lateReason.trim() ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                      backgroundColor: '#ffffff',
+                      fontSize: '0.85rem',
+                      color: '#1e293b',
+                      resize: 'none',
+                      boxSizing: 'border-box',
+                      fontFamily: 'inherit',
+                      outline: 'none',
+                    }}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: '#78350f', marginTop: '4px' }}>
+                    Check-in is recorded in Asia/Kolkata timezone. A valid reason must be provided before check-in can be finalized.
+                  </div>
+                </div>
+              )}
 
               {submitError && (
                 <div className="error-alert-box" style={{ marginTop: '12px' }}>
