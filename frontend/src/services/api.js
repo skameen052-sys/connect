@@ -67,6 +67,7 @@ export { performanceService } from './performanceService';
 export { departmentService } from './departmentService';
 export { auditService } from './auditService';
 export { settingsService } from './settingsService';
+export { chatService } from './chatService';
 
 export default api;
 

@@ -18,6 +18,10 @@ import {
   ChevronRight,
   Star,
   Sparkles,
+  CheckCircle2,
+  XCircle,
+  CreditCard,
+  Download,
 } from 'lucide-react';
 import AttendanceCard from '../../components/employee/AttendanceCard';
 import QuickActionCard from '../../components/employee/QuickActionCard';
@@ -29,6 +33,9 @@ import { assignmentService } from '../../services/assignmentService';
 import { holidayService } from '../../services/holidayService';
 import { leaveService } from '../../services/leaveService';
 import { performanceService } from '../../services/performanceService';
+import { separationService } from '../../services/separationService';
+import { loanService } from '../../services/loanService';
+import { payslipService } from '../../services/payslipService';
 import { authService } from '../../services/authService';
 
 export default function EmployeeDashboard() {
@@ -43,6 +50,10 @@ export default function EmployeeDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [latestReview, setLatestReview] = useState(null);
+  const [latestResignation, setLatestResignation] = useState(null);
+  const [latestLoan, setLatestLoan] = useState(null);
+  const [latestPayslip, setLatestPayslip] = useState(null);
+  const [downloadingPayslip, setDownloadingPayslip] = useState(false);
 
   const storedUser = (() => {
     try {
@@ -52,17 +63,20 @@ export default function EmployeeDashboard() {
     }
   })();
   const userGreetingName = storedUser?.name ? storedUser.name.split(' ')[0].toLowerCase() : 'employee';
-  const employeeId = storedUser?.employeeId || storedUser?.employee_id || 'EMP-1001';
+  const employeeId = storedUser?.employeeId || storedUser?.employee_id || storedUser?.id || storedUser?.uid || '';
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [annRes, mtgRes, asgRes, holRes, perfRes] = await Promise.allSettled([
+        const [annRes, mtgRes, asgRes, holRes, perfRes, sepRes, loanRes, payslipRes] = await Promise.allSettled([
           announcementService.getAnnouncements(),
           meetingService.getMeetings(),
           assignmentService.getAssignments(),
           holidayService.getHolidays(),
-          performanceService.getReviews(employeeId),
+          performanceService.getReviews(employeeId || storedUser?.email || null),
+          separationService.getRequests(employeeId || storedUser?.email),
+          loanService.getLoans(employeeId || storedUser?.email || null),
+          payslipService.getPayslips(),
         ]);
         if (annRes.status === 'fulfilled' && Array.isArray(annRes.value)) setAnnouncements(annRes.value);
         if (mtgRes.status === 'fulfilled' && Array.isArray(mtgRes.value)) setMeetings(mtgRes.value);
@@ -70,6 +84,23 @@ export default function EmployeeDashboard() {
         if (holRes.status === 'fulfilled' && Array.isArray(holRes.value)) setHolidays(holRes.value);
         if (perfRes.status === 'fulfilled' && Array.isArray(perfRes.value) && perfRes.value.length > 0) {
           setLatestReview(perfRes.value[0]);
+        } else {
+          setLatestReview(null);
+        }
+        if (sepRes.status === 'fulfilled' && Array.isArray(sepRes.value) && sepRes.value.length > 0) {
+          setLatestResignation(sepRes.value[0]);
+        } else {
+          setLatestResignation(null);
+        }
+        if (loanRes.status === 'fulfilled' && Array.isArray(loanRes.value) && loanRes.value.length > 0) {
+          setLatestLoan(loanRes.value[0]);
+        } else {
+          setLatestLoan(null);
+        }
+        if (payslipRes.status === 'fulfilled' && Array.isArray(payslipRes.value) && payslipRes.value.length > 0) {
+          setLatestPayslip(payslipRes.value[0]);
+        } else {
+          setLatestPayslip(null);
         }
       } catch (err) {
         console.warn('Dashboard data fetch error', err);
@@ -170,6 +201,304 @@ export default function EmployeeDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#047857', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0 }}>
             <span>View Appraisal</span>
             <ChevronRight size={18} />
+          </div>
+        </div>
+      )}
+
+      {/* Official Resignation / Exit Status Banner */}
+      {latestResignation && (
+        <div
+          onClick={() => navigate('/employee/resignation')}
+          style={{
+            backgroundColor: '#ffffff',
+            border: latestResignation.status === 'APPROVED' 
+              ? '1.5px solid #a7f3d0' 
+              : latestResignation.status === 'REJECTED' 
+                ? '1.5px solid #fca5a5' 
+                : latestResignation.status === 'SETTLED'
+                  ? '1.5px solid #86efac'
+                  : '1.5px solid #fde68a',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            marginBottom: '24px',
+            background: latestResignation.status === 'APPROVED' 
+              ? 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)' 
+              : latestResignation.status === 'REJECTED' 
+                ? 'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)' 
+                : latestResignation.status === 'SETTLED'
+                  ? 'linear-gradient(135deg, #ffffff 0%, #ecfdf5 100%)'
+                  : 'linear-gradient(135deg, #ffffff 0%, #fffbeb 100%)',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)',
+            transition: 'all 0.2s ease',
+          }}
+          title="Click to view separation & notice period details"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                backgroundColor: latestResignation.status === 'APPROVED' 
+                  ? '#d1fae5' 
+                  : latestResignation.status === 'REJECTED' 
+                    ? '#fee2e2' 
+                    : latestResignation.status === 'SETTLED'
+                      ? '#bbf7d0'
+                      : '#fef3c7',
+                color: latestResignation.status === 'APPROVED' 
+                  ? '#047857' 
+                  : latestResignation.status === 'REJECTED' 
+                    ? '#b91c1c' 
+                    : latestResignation.status === 'SETTLED'
+                      ? '#15803d'
+                      : '#b45309',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {latestResignation.status === 'APPROVED' && <CheckCircle2 size={22} />}
+              {latestResignation.status === 'REJECTED' && <XCircle size={22} />}
+              {latestResignation.status === 'SETTLED' && <CheckCircle size={22} />}
+              {latestResignation.status === 'SUBMITTED' && <Clock size={22} />}
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.925rem', fontWeight: 800, color: latestResignation.status === 'REJECTED' ? '#991b1b' : '#0b3d2b' }}>
+                  {latestResignation.status === 'APPROVED' && 'Resignation Approved by HR'}
+                  {latestResignation.status === 'REJECTED' && 'Resignation Request Declined'}
+                  {latestResignation.status === 'SETTLED' && 'Full & Final Settlement Settled'}
+                  {latestResignation.status === 'SUBMITTED' && 'Resignation Under HR Review'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: latestResignation.status === 'APPROVED' ? '#047857' : latestResignation.status === 'REJECTED' ? '#b91c1c' : '#b45309',
+                    backgroundColor: latestResignation.status === 'APPROVED' ? '#d1fae5' : latestResignation.status === 'REJECTED' ? '#fee2e2' : '#fef3c7',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                  }}
+                >
+                  {latestResignation.status === 'APPROVED' ? 'APPROVED' : latestResignation.status === 'REJECTED' ? 'DECLINED' : latestResignation.status === 'SETTLED' ? 'SETTLED' : 'PENDING NOTICE'}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                {latestResignation.status === 'APPROVED' && `Official Last Day: ${latestResignation.last_working_date || latestResignation.intended_last_date} • Notice handover active`}
+                {latestResignation.status === 'REJECTED' && `HR Remarks: ${latestResignation.rejection_reason || 'Please consult with HR or submit revised request'}`}
+                {latestResignation.status === 'SETTLED' && `Statement Ready • Net: ₹${parseFloat(latestResignation.fnf_settlement?.net_settlement || 0).toLocaleString('en-IN')}`}
+                {latestResignation.status === 'SUBMITTED' && `Submitted on ${latestResignation.resignation_date || latestResignation.created_at?.split('T')[0]} • ${latestResignation.notice_period_days || 30} Days Notice`}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#047857', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0 }}>
+            <span>View Exit Status</span>
+            <ChevronRight size={18} />
+          </div>
+        </div>
+      )}
+
+      {/* Official Loan & Salary Advance Status Banner */}
+      {latestLoan && (
+        <div
+          onClick={() => navigate('/employee/loans')}
+          style={{
+            backgroundColor: '#ffffff',
+            border: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase())
+              ? '1.5px solid #a7f3d0'
+              : (latestLoan.status || '').toUpperCase() === 'REJECTED'
+                ? '1.5px solid #fca5a5'
+                : '1.5px solid #fde68a',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            marginBottom: '24px',
+            background: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase())
+              ? 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)'
+              : (latestLoan.status || '').toUpperCase() === 'REJECTED'
+                ? 'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)'
+                : 'linear-gradient(135deg, #ffffff 0%, #fffbeb 100%)',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)',
+            transition: 'all 0.2s ease',
+          }}
+          title="Click to view loan details & repayment schedule"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                backgroundColor: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase())
+                  ? '#d1fae5'
+                  : (latestLoan.status || '').toUpperCase() === 'REJECTED'
+                    ? '#fee2e2'
+                    : '#fef3c7',
+                color: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase())
+                  ? '#047857'
+                  : (latestLoan.status || '').toUpperCase() === 'REJECTED'
+                    ? '#b91c1c'
+                    : '#b45309',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <CreditCard size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.925rem', fontWeight: 800, color: (latestLoan.status || '').toUpperCase() === 'REJECTED' ? '#991b1b' : '#0b3d2b' }}>
+                  {['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase())
+                    ? `${latestLoan.loan_type} Approved`
+                    : (latestLoan.status || '').toUpperCase() === 'REJECTED'
+                      ? `${latestLoan.loan_type} Declined`
+                      : `${latestLoan.loan_type} Under Review`}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase()) ? '#047857' : (latestLoan.status || '').toUpperCase() === 'REJECTED' ? '#b91c1c' : '#b45309',
+                    backgroundColor: ['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase()) ? '#d1fae5' : (latestLoan.status || '').toUpperCase() === 'REJECTED' ? '#fee2e2' : '#fef3c7',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                  }}
+                >
+                  {['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase()) ? 'APPROVED' : (latestLoan.status || '').toUpperCase() === 'REJECTED' ? 'REJECTED' : 'PENDING'}
+                </span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#134e4a', backgroundColor: '#e6fffa', padding: '2px 8px', borderRadius: '999px' }}>
+                  ₹{parseFloat(latestLoan.principal_amount || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                {['APPROVED', 'ACTIVE'].includes((latestLoan.status || '').toUpperCase()) && (
+                  <span>
+                    Monthly EMI: ₹{parseFloat(latestLoan.monthly_installment || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} &bull; Remaining: ₹{parseFloat(latestLoan.remaining_balance || 0).toLocaleString('en-IN')}
+                    {latestLoan.approved_by ? ` &bull; Approved by ${latestLoan.approved_by}` : ''}
+                  </span>
+                )}
+                {(latestLoan.status || '').toUpperCase() === 'REJECTED' && (
+                  <span>
+                    {latestLoan.rejection_reason || 'Application was declined during administrative verification.'}
+                  </span>
+                )}
+                {(latestLoan.status || '').toUpperCase() === 'PENDING' && (
+                  <span>
+                    Applied on {latestLoan.applied_date || latestLoan.created_at?.split('T')[0]} &bull; Tenure: {latestLoan.term_months} Months &bull; Awaiting administrative approval
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#047857', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0 }}>
+            <span>View Loans</span>
+            <ChevronRight size={18} />
+          </div>
+        </div>
+      )}
+
+      {/* Official Monthly Payslip / Salary Disbursed Banner */}
+      {latestPayslip && (
+        <div
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1.5px solid #a7f3d0',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '24px',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)',
+            transition: 'all 0.2s ease',
+            flexWrap: 'wrap',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '12px',
+                backgroundColor: '#d1fae5',
+                color: '#047857',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Receipt size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0b3d2b' }}>
+                  Salary Slip Disbursed • {latestPayslip.month_name || latestPayslip.month} {latestPayslip.year}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: '#047857',
+                    backgroundColor: '#d1fae5',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                  }}
+                >
+                  DISBURSED
+                </span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f766e', backgroundColor: '#e6fffa', padding: '2px 8px', borderRadius: '999px' }}>
+                  Take Home: ₹{parseFloat(latestPayslip.net_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '3px' }}>
+                Payable: {latestPayslip.payable_days} Days (Incl. {latestPayslip.sundays || 4} Sundays & {latestPayslip.holidays || 0} Festival Holidays) &bull; EPF (12%): ₹{parseFloat(latestPayslip.employee_pf || 0).toLocaleString('en-IN')} &bull; Ref: {latestPayslip.payslip_number || latestPayslip.id}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="hrms-btn-primary"
+              style={{ fontSize: '0.78rem', padding: '6px 12px', backgroundColor: '#0f766e', display: 'flex', alignItems: 'center', gap: '5px' }}
+              onClick={async (e) => {
+                e.stopPropagation();
+                setDownloadingPayslip(true);
+                try {
+                  await payslipService.downloadPayslipPdf(latestPayslip.id || latestPayslip.payslip_number, `Payslip_${latestPayslip.month}_${latestPayslip.year}.pdf`);
+                } catch {
+                  alert('Could not download payslip PDF.');
+                } finally {
+                  setDownloadingPayslip(false);
+                }
+              }}
+              disabled={downloadingPayslip}
+            >
+              <Download size={14} /> {downloadingPayslip ? 'Downloading...' : 'Download PDF'}
+            </button>
+            <button
+              type="button"
+              className="hrms-btn-secondary"
+              style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              onClick={() => navigate('/employee/payslips')}
+            >
+              <span>View All</span>
+              <ChevronRight size={14} />
+            </button>
           </div>
         </div>
       )}

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, UserPlus, Eye, Mail, Phone, Building, AlertCircle, Trash2, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, UserPlus, Eye, Mail, Phone, Building, AlertCircle, Trash2, CheckCircle2, MessageSquare } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
 import { employeeService } from '../../services/employeeService';
 
 export default function AdminEmployeeList() {
+  const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
@@ -187,8 +189,8 @@ export default function AdminEmployeeList() {
             >
               <option value="ALL">All Departments</option>
               <option value="Operations">Operations</option>
-              <option value="Engineering">Engineering</option>
-              <option value="Design">Design</option>
+              <option value="Web Developer">Web Developer</option>
+              <option value="Python Developer">Python Developer</option>
               <option value="Human Resources">Human Resources</option>
               <option value="Finance">Finance</option>
             </select>
@@ -243,6 +245,20 @@ export default function AdminEmployeeList() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="table-action-btn"
+                            style={{
+                              backgroundColor: '#eef2ff',
+                              border: '1px solid #c7d2fe',
+                              color: '#4f46e5',
+                            }}
+                            onClick={() => navigate(`/admin/chat?user=${encodeURIComponent(emp.id || emp.employeeId || emp.email)}`)}
+                            title={`Chat with ${empName} on Teams`}
+                          >
+                            <MessageSquare size={13} />
+                            <span>Chat</span>
+                          </button>
                           <button
                             type="button"
                             className="table-action-btn"
@@ -355,8 +371,8 @@ export default function AdminEmployeeList() {
                 onChange={(e) => setFormDept(e.target.value)}
               >
                 <option value="Operations">Operations</option>
-                <option value="Engineering">Engineering</option>
-                <option value="Design">Design</option>
+                <option value="Web Developer">Web Developer</option>
+                <option value="Python Developer">Python Developer</option>
                 <option value="Human Resources">Human Resources</option>
                 <option value="Finance">Finance</option>
               </select>

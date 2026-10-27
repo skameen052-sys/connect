@@ -37,6 +37,7 @@ from app.routers import (
     departments,
     audit,
     settings as settings_router,
+    chat,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -186,6 +187,7 @@ app.include_router(separation.router, prefix=settings.API_V1_STR)
 app.include_router(departments.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)
 app.include_router(settings_router.router, prefix=settings.API_V1_STR)
+app.include_router(chat.router, prefix=settings.API_V1_STR)
 
 # Aliases for Admin / Employee Dashboard direct access
 @app.get(f"{settings.API_V1_STR}/admin/dashboard", tags=["Dashboards"])

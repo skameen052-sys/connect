@@ -159,13 +159,27 @@ export default function AdminSettings() {
                   value={formState.daily_rate_denominator}
                   onChange={(e) => setFormState({ ...formState, daily_rate_denominator: e.target.value })}
                 >
-                  <option value="30">Standard 30 Days (Recommended)</option>
-                  <option value="26">Working Days Basis (26 Days)</option>
+                  <option value="26">Working Days Basis (26 Days) • Recommended</option>
+                  <option value="30">Standard 30 Days Basis</option>
                   <option value="31">Calendar Days Basis (31 Days)</option>
                 </select>
                 <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Used to derive Daily Rate: Gross / Denominator for LOP deductions.
+                  Standard company rule: 30 days minus 4 Sundays = 26 working days. Used to derive Daily Rate: Gross / Denominator for LOP deductions.
                 </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#0f766e', textTransform: 'uppercase' }}>Weekly Offs</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginTop: '0.2rem' }}>4 Sundays (Paid)</div>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Included in payable days calculation</div>
+                </div>
+
+                <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#0f766e', textTransform: 'uppercase' }}>Festival Holidays</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginTop: '0.2rem' }}>Fully Paid</div>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Sankranthi, Diwali, etc. counted as paid days</div>
+                </div>
               </div>
 
               <div className="hrms-form-group">
@@ -190,6 +204,9 @@ export default function AdminSettings() {
                   onChange={(e) => setFormState({ ...formState, pf_wage_ceiling: e.target.value })}
                   required
                 />
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Statutory 12% EPF calculated on Basic wage capped at this ceiling (standard ₹15,000).
+                </span>
               </div>
 
               <div className="hrms-form-group">

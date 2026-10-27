@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Trash2, CheckCircle2, AlertCircle, MessageSquare } from 'lucide-react';
 import PageHeader from '../../components/common/PageHeader';
 import { employeeService } from '../../services/employeeService';
 import { teamService } from '../../services/teamService';
 
 export default function AdminTeams() {
+  const navigate = useNavigate();
   const [teamName, setTeamName] = useState('');
   const [selectedEmployees, setSelectedEmployees] = useState([]);
   const [availableEmployees, setAvailableEmployees] = useState([]);
@@ -335,27 +337,52 @@ export default function AdminTeams() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleDeleteTeam(t.id, t.name)}
-                  style={{
-                    backgroundColor: '#fff1f2',
-                    border: '1px solid #fecdd3',
-                    color: '#e11d48',
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                  title="Delete team"
-                >
-                  <Trash2 size={13} />
-                  <span>Delete</span>
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/chat?team=${encodeURIComponent(t.id || t.name)}`)}
+                    style={{
+                      backgroundColor: '#eef2ff',
+                      border: '1px solid #c7d2fe',
+                      color: '#4f46e5',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title="Open this team's chat channel"
+                  >
+                    <MessageSquare size={13} />
+                    <span>Chat in Team</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTeam(t.id, t.name)}
+                    style={{
+                      backgroundColor: '#fff1f2',
+                      border: '1px solid #fecdd3',
+                      color: '#e11d48',
+                      padding: '6px 10px',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                    title="Delete team"
+                  >
+                    <Trash2 size={13} />
+                    <span>Delete</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>

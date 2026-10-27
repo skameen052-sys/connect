@@ -30,48 +30,66 @@ class DesignationCreate(BaseModel):
 
 
 DEFAULT_DEPARTMENTS = [
-    {"name": "Engineering", "code": "ENG", "description": "Software Architecture, Development & QA"},
-    {"name": "Human Resources", "code": "HR", "description": "Talent Acquisition, People Operations & Compliance"},
-    {"name": "Finance & Payroll", "code": "FIN", "description": "Accounting, Payroll Disbursement & Taxation"},
-    {"name": "Product & Design", "code": "PROD", "description": "Product Strategy & UI/UX Design"},
-    {"name": "Marketing & Sales", "code": "MKT", "description": "Growth, Business Development & Client Relations"},
-    {"name": "Operations", "code": "OPS", "description": "Workforce Logistics & Facilities"},
+    {"name": "Human Resources", "code": "HR", "description": "Talent Acquisition, People Operations & Compliance", "order": 1},
+    {"name": "Web Developer", "code": "WEB", "description": "Web Application Architecture, Development & QA", "order": 2},
+    {"name": "Python Developer", "code": "PY", "description": "Python Backend Services, APIs & Automation", "order": 3},
+    {"name": "Finance & Payroll", "code": "FIN", "description": "Accounting, Payroll Disbursement & Taxation", "order": 4},
 ]
 
 DEFAULT_DESIGNATIONS = [
-    {"title": "Senior Software Engineer", "department": "Engineering", "level": "Senior"},
-    {"title": "Full-Stack Developer", "department": "Engineering", "level": "Mid"},
-    {"title": "QA Test Engineer", "department": "Engineering", "level": "Mid"},
     {"title": "HR Manager", "department": "Human Resources", "level": "Lead"},
+    {"title": "Senior Web Developer", "department": "Web Developer", "level": "Senior"},
+    {"title": "Full-Stack Web Developer", "department": "Web Developer", "level": "Mid"},
+    {"title": "Frontend Developer", "department": "Web Developer", "level": "Mid"},
+    {"title": "Python Developer", "department": "Python Developer", "level": "Mid"},
+    {"title": "Senior Python Backend Engineer", "department": "Python Developer", "level": "Senior"},
     {"title": "Payroll Specialist", "department": "Finance & Payroll", "level": "Mid"},
-    {"title": "Product Designer (UI/UX)", "department": "Product & Design", "level": "Mid"},
-    {"title": "Operations Coordinator", "department": "Operations", "level": "Junior"},
 ]
+
+ORDER_MAP = {
+    "human resources": 1,
+    "web developer": 2,
+    "python developer": 3,
+    "finance & payroll": 4,
+}
 
 
 @router.get("/departments", response_model=List[dict])
 def list_departments(current_user: Any = Depends(get_current_user)):
-    """List all company departments with employee counts."""
+    """List company departments in strict order: Human Resources, Web Developer, Python Developer, Finance & Payroll."""
     depts = FirestoreService.get_all("departments")
     if not depts:
-        # Seed defaults
         now_iso = datetime.now(timezone.utc).isoformat()
         for d in DEFAULT_DEPARTMENTS:
             doc = {**d, "created_at": now_iso}
             FirestoreService.create("departments", doc)
         depts = FirestoreService.get_all("departments")
 
-    # Count employees per department
+    # Filter strictly to the 4 requested departments
+    filtered_depts = [d for d in depts if d.get("name", "").strip().lower() in ORDER_MAP]
+
+    # Count employees per department with alias normalization
     employees = FirestoreService.get_all("employees")
     dept_counts = {}
     for e in employees:
-        dept_name = e.get("department") or e.get("dept") or "General"
+        raw_dept = str(e.get("department") or e.get("dept") or "General").strip()
+        if raw_dept.lower() == "engineering":
+            dept_name = "Web Developer"
+        elif raw_dept.lower() in ["product & design", "product and design"]:
+            dept_name = "Python Developer"
+        else:
+            dept_name = raw_dept
         dept_counts[dept_name] = dept_counts.get(dept_name, 0) + 1
 
-    for d in depts:
-        d["employee_count"] = dept_counts.get(d.get("name"), 0)
+    for d in filtered_depts:
+        d_name = d.get("name", "")
+        d["employee_count"] = dept_counts.get(d_name, 0)
 
-    return depts
+    # Sort strictly by the requested order:
+    # 1. Human Resources, 2. Web Developer, 3. Python Developer, 4. Finance & Payroll
+    filtered_depts.sort(key=lambda d: ORDER_MAP.get(d.get("name", "").strip().lower(), 99))
+
+    return filtered_depts
 
 
 @router.post("/departments", status_code=status.HTTP_201_CREATED)
@@ -89,7 +107,7 @@ def create_department(payload: DepartmentCreate, current_user: Any = Depends(get
 
 @router.get("/designations", response_model=List[dict])
 def list_designations(department: Optional[str] = None, current_user: Any = Depends(get_current_user)):
-    """List all designations and job titles."""
+    """List designations for active departments ordered consistently."""
     desigs = FirestoreService.get_all("designations")
     if not desigs:
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -98,10 +116,14 @@ def list_designations(department: Optional[str] = None, current_user: Any = Depe
             FirestoreService.create("designations", doc)
         desigs = FirestoreService.get_all("designations")
 
-    if department:
-        desigs = [d for d in desigs if str(d.get("department")).lower() == department.lower()]
+    # Filter to designations under the active departments
+    valid_desigs = [d for d in desigs if str(d.get("department", "")).strip().lower() in ORDER_MAP]
 
-    return desigs
+    if department:
+        valid_desigs = [d for d in valid_desigs if str(d.get("department")).lower() == department.lower()]
+
+    valid_desigs.sort(key=lambda d: (ORDER_MAP.get(str(d.get("department", "")).strip().lower(), 99), str(d.get("title"))))
+    return valid_desigs
 
 
 @router.post("/designations", status_code=status.HTTP_201_CREATED)

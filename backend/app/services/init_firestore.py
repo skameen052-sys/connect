@@ -159,3 +159,67 @@ def init_firestore_seed():
             "created_at": now_iso,
             "updated_at": now_iso,
         })
+
+    # 6. Seed Default Teams & Welcome Chat Message for Microsoft Teams experience
+    existing_teams = firestore_service.list_documents("teams")
+    if not existing_teams:
+        logger.info("Seeding default enterprise teams for collaborative chat...")
+        all_emps = firestore_service.list_documents("employees")
+        emp_names = [e.get("full_name") or e.get("name") for e in all_emps if e.get("full_name") or e.get("name")]
+        sample_members = emp_names[:8] if emp_names else ["Administrator"]
+
+        team_general_id = firestore_service.create_document("teams", {
+            "name": "General & Company-Wide",
+            "teamName": "General & Company-Wide",
+            "department": "Company",
+            "description": "Company-wide general discussions, announcements, and open chatter.",
+            "leader": "Administrator",
+            "members": emp_names if emp_names else ["Administrator"],
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+        team_ops_id = firestore_service.create_document("teams", {
+            "name": "Operations Core",
+            "teamName": "Operations Core",
+            "department": "Operations",
+            "description": "Field operations, daily shifts, attendance, and dispatch coordination.",
+            "leader": "Farook",
+            "members": sample_members,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+        team_eng_id = firestore_service.create_document("teams", {
+            "name": "Engineering & Tech",
+            "teamName": "Engineering & Tech",
+            "department": "Engineering",
+            "description": "Technical architecture, system workflows, and sprint updates.",
+            "leader": "Arshith Developer",
+            "members": ["Arshith Developer", "Farook"],
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+        # Seed initial welcome message in General team
+        existing_msgs = firestore_service.list_documents("chat_messages")
+        if not existing_msgs:
+            firestore_service.create_document("chat_messages", {
+                "chat_type": "team",
+                "target_id": str(team_general_id),
+                "team_id": str(team_general_id),
+                "team_name": "General & Company-Wide",
+                "sender_id": "ADM-001",
+                "sender_name": "Administrator",
+                "sender_role": "admin",
+                "sender_avatar": "A",
+                "receiver_id": str(team_general_id),
+                "content": "👋 Welcome to **Arshith Connect Teams Chat**! You can chat directly with any individual employee or collaborate seamlessly in team channels.",
+                "attachments": [],
+                "reactions": {"🎉": ["ADM-001"]},
+                "is_pinned": True,
+                "read_by": ["ADM-001"],
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            })
+

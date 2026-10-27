@@ -33,17 +33,15 @@ class PayrollEngine:
         loan_deductions: float = 0.0,
         custom_pf_wage_base: Optional[float] = None,
         custom_daily_rate_denominator: Optional[int] = None,
+        pf_ceiling: float = 15000.0,
+        pf_rate: float = 0.12,
+        sundays_count: int = 4,
+        festival_holiday_count: int = 0,
+        festival_holiday_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Calculates itemized monthly compensation for a single employee.
-
-        Exact PDF Benchmark validation:
-        Basic: 20000, HRA: 8000, Other: 4000 => Gross: 32000
-        Days: 30, Payable: 28, Unpaid: 2
-        LOP = 32000 / 30 * 2 = 2133.33
-        Adjusted Gross = 32000 - 2133.33 = 29866.67
-        Employee PF (12% of 18000 wage base) = 2160.00
-        Net Salary = 27706.67
+        Calculates itemized monthly compensation for a single employee based on attendance,
+        4 Sundays, festival holidays, and statutory EPF/ESIC ceilings.
         """
         basic = float(salary_structure.get("basic_salary", 0.0) or salary_structure.get("basic", 0.0))
         hra = float(salary_structure.get("hra", 0.0))
@@ -55,10 +53,10 @@ class PayrollEngine:
 
         gross_salary = round_curr(basic + hra + other_allowances)
 
-        # Denominator for daily rate
-        denominator = custom_daily_rate_denominator or total_period_days or 30
+        # Denominator for daily rate (e.g. 26 working days or total period days)
+        denominator = custom_daily_rate_denominator or 26
         if denominator <= 0:
-            denominator = 30
+            denominator = 26
 
         unpaid_days = max(0.0, float(total_period_days) - float(payable_days))
 
@@ -77,20 +75,31 @@ class PayrollEngine:
 
         # Statutory Deductions
         # 1. Employee Provident Fund (EPF)
-        # If pf_applicable is True (default True): 12% on PF wage base
+        # 12% on PF wage base, capped at statutory wage ceiling (e.g. ₹15,000)
         pf_applicable = salary_structure.get("pf_applicable", True)
         if pf_applicable:
             if custom_pf_wage_base is not None:
                 pf_wage = custom_pf_wage_base
             else:
+                # Earned basic after LOP proration
+                if unpaid_days > 0 and denominator > 0:
+                    basic_daily_rate = Decimal(str(basic)) / Decimal(str(denominator))
+                    basic_lop = float((basic_daily_rate * Decimal(str(unpaid_days))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                    earned_basic = max(0.0, round_curr(basic - basic_lop))
+                else:
+                    earned_basic = basic
+
+                # Statutory EPF mandatory wage ceiling (default ₹15,000)
                 configured_pf_base = salary_structure.get("pf_wage_base")
-                pf_wage = float(configured_pf_base) if configured_pf_base else min(basic, 18000.0)
+                target_ceiling = float(configured_pf_base) if configured_pf_base else pf_ceiling
+                pf_wage = min(earned_basic, target_ceiling)
             
-            # Prorate PF wage if LOP exists or use standard rate
-            pf_rate = float(salary_structure.get("pf_rate", 0.12))
-            emp_pf = round_curr(pf_wage * pf_rate)
-            employer_pf = round_curr(pf_wage * pf_rate)
+            effective_pf_rate = float(salary_structure.get("pf_rate") or pf_rate or 0.12)
+            emp_pf = round_curr(pf_wage * effective_pf_rate)
+            employer_pf = round_curr(pf_wage * effective_pf_rate)
         else:
+            pf_wage = 0.0
+            effective_pf_rate = 0.0
             emp_pf = 0.0
             employer_pf = 0.0
 
@@ -138,6 +147,14 @@ class PayrollEngine:
             "overtime_pay": overtime_pay,
             "bonus": bonus,
             "adjusted_gross": adjusted_gross,
+            "pf_wage_base": pf_wage,
+            "pf_rate": effective_pf_rate,
+            "pf_wage_ceiling": pf_ceiling,
+            "sundays": sundays_count,
+            "weekly_offs": sundays_count,
+            "holidays": festival_holiday_count,
+            "festival_holidays": festival_holiday_count,
+            "festival_holiday_names": festival_holiday_names or [],
             "employee_pf": emp_pf,
             "employee_esi": emp_esi,
             "professional_tax": pt,
@@ -190,12 +207,27 @@ class PayrollEngine:
         ]
         holiday_count = len(month_holidays)
 
-        # Calculate weekend days (Sunday count by default)
-        sundays = 0
+        # Calculate weekend days (Standard 4 Sundays as per company policy)
+        sunday_dates = set()
         for d in range(1, total_period_days + 1):
-            dt = date(year, month, d)
-            if dt.weekday() == 6:  # Sunday
-                sundays += 1
+            try:
+                dt = date(year, month, d)
+                if dt.weekday() == 6:  # Sunday
+                    sunday_dates.add(dt.strftime("%Y-%m-%d"))
+            except ValueError:
+                pass
+        sundays = max(4, len(sunday_dates))
+
+        # Fetch holidays and deduplicate by calendar date, excluding Sundays
+        holidays_all = FirestoreService.get_all("holidays")
+        month_holidays_map = {}
+        for h in holidays_all:
+            h_date = str(h.get("date", "")).strip()
+            if start_date_str <= h_date <= end_date_str:
+                if h_date not in sunday_dates:
+                    month_holidays_map[h_date] = str(h.get("name") or "Festival Holiday").strip()
+        holiday_count = len(month_holidays_map)
+        holiday_names = list(month_holidays_map.values())
 
         present_days = 0.0
         overtime_hours = 0.0
@@ -239,8 +271,8 @@ class PayrollEngine:
                         except Exception:
                             approved_leave_days += 1.0
 
-        # If employee has recorded attendance punches, calculate payable days from records:
-        # Payable Days = Present + Half-day + Approved Paid Leave + Weekly Offs (Sundays) + Holidays
+        # 4 Sundays and Festival Holidays are counted as fully paid non-working days:
+        # Payable Days = Present Days + Half-days + Approved Paid Leaves + 4 Sundays + Festival Holidays
         if len(emp_att) > 0:
             # Cap payable days at total_period_days
             payable_days = min(float(total_period_days), present_days + approved_leave_days + sundays + holiday_count)
@@ -257,7 +289,9 @@ class PayrollEngine:
             "present_days": present_days,
             "approved_leave_days": approved_leave_days,
             "weekly_offs": sundays,
+            "sundays": sundays,
             "holidays": holiday_count,
+            "holiday_names": holiday_names,
             "overtime_hours": overtime_hours,
         }
 
@@ -284,6 +318,12 @@ class PayrollEngine:
                 elif str(r.get("status", "")).upper() in ["CALCULATED", "UNDER_REVIEW", "DRAFT"]:
                     # Can recalculate if in preliminary state
                     pass
+
+        # Fetch company payroll configuration
+        comp_settings = FirestoreService.get_by_id("settings", "company_settings") or {}
+        configured_denominator = int(comp_settings.get("daily_rate_denominator") or 26)
+        configured_pf_ceiling = float(comp_settings.get("pf_wage_ceiling") or 15000.0)
+        configured_pf_rate = float(comp_settings.get("pf_rate") or 0.12)
 
         # Total days in month
         _, days_in_month = calendar.monthrange(year, month)
@@ -312,7 +352,7 @@ class PayrollEngine:
         active_loans_by_emp = {}
         for ln in all_loans:
             eid = str(ln.get("employee_id") or ln.get("employeeId", ""))
-            if str(ln.get("status", "")).upper() == "ACTIVE" and float(ln.get("remaining_balance", 0)) > 0:
+            if str(ln.get("status", "")).upper() in ["ACTIVE", "APPROVED"] and float(ln.get("remaining_balance", 0)) > 0:
                 active_loans_by_emp[eid] = ln
 
         payroll_details = []
@@ -340,14 +380,15 @@ class PayrollEngine:
                     "other_allowances": round_curr(base_sal * 0.2),
                     "gross_salary": base_sal,
                     "pf_applicable": True,
-                    "pf_wage_base": 15000.0,
+                    "pf_wage_base": configured_pf_ceiling,
+                    "pf_rate": configured_pf_rate,
                     "esi_applicable": base_sal <= 21000.0,
                     "professional_tax": 200.0,
                     "tds_monthly": 0.0,
                     "is_active": True,
                 }
 
-            # Check attendance records
+            # Check attendance records (incorporating 4 Sundays and festival holidays)
             att_breakdown = cls.calculate_attendance_payable_days(emp_id, year, month, payroll_days)
             payable_days = att_breakdown["payable_days"]
             overtime_hrs = att_breakdown["overtime_hours"]
@@ -361,7 +402,7 @@ class PayrollEngine:
                     float(loan_info.get("remaining_balance", 0.0))
                 )
 
-            # Compute employee compensation
+            # Compute employee compensation using 26 working days basis and statutory PF ceiling
             calc = cls.calculate_employee_payroll(
                 salary_structure=struct,
                 total_period_days=payroll_days,
@@ -369,10 +410,19 @@ class PayrollEngine:
                 overtime_hours=overtime_hrs,
                 bonus=0.0,
                 loan_deductions=loan_emi,
+                custom_daily_rate_denominator=configured_denominator,
+                pf_ceiling=configured_pf_ceiling,
+                pf_rate=configured_pf_rate,
+                sundays_count=att_breakdown.get("sundays", 4),
+                festival_holiday_count=att_breakdown.get("holidays", 0),
+                festival_holiday_names=att_breakdown.get("holiday_names", []),
             )
 
             detail_item = {
                 "employee_id": emp_id,
+                "employeeId": str(emp.get("employeeId") or emp.get("employee_id") or emp_id),
+                "employee_doc_id": str(emp.get("id") or ""),
+                "employee_email": str(emp.get("email") or ""),
                 "employee_name": emp_name,
                 "department": emp_dept,
                 "designation": emp_desig,
@@ -381,6 +431,11 @@ class PayrollEngine:
                 "pan_number": emp.get("pan_number", "ABCDE1234F"),
                 "uan_number": emp.get("uan_number", "100123456789"),
                 "loan_id": loan_info.get("id") if loan_info else None,
+                "sundays": att_breakdown.get("sundays", 4),
+                "holidays": att_breakdown.get("holidays", 0),
+                "holiday_names": att_breakdown.get("holiday_names", []),
+                "present_days": att_breakdown.get("present_days", 0.0),
+                "approved_leave_days": att_breakdown.get("approved_leave_days", 0.0),
                 **calc,
             }
 
@@ -399,6 +454,8 @@ class PayrollEngine:
             "year": year,
             "month_name": month_name,
             "payroll_days": payroll_days,
+            "daily_rate_denominator": configured_denominator,
+            "pf_wage_ceiling": configured_pf_ceiling,
             "employee_count": len(payroll_details),
             "total_gross": round_curr(tot_gross),
             "total_loss_of_pay": round_curr(tot_lop),
@@ -408,7 +465,7 @@ class PayrollEngine:
             "status": "CALCULATED",
             "created_by": user_email,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "notes": notes or f"Automated calculation executed for {len(payroll_details)} employees.",
+            "notes": notes or f"Automated calculation executed for {len(payroll_details)} employees (26 Working Days basis, 4 Sundays & Festival Holidays included).",
             "details": payroll_details,
         }
 

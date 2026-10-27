@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Award, Target, Star, TrendingUp, Search, RefreshCw, 
-  Plus, CheckCircle2, X 
+  Award, Star, TrendingUp, Search, RefreshCw, X 
 } from 'lucide-react';
 import performanceService from '../../services/performanceService';
 import employeeService from '../../services/employeeService';
 
 export default function AdminPerformance() {
-  const [activeTab, setActiveTab] = useState('REVIEWS'); // 'REVIEWS' | 'GOALS'
   const [reviews, setReviews] = useState([]);
-  const [goals, setGoals] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modals state
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
 
   const [reviewForm, setReviewForm] = useState({
     employee_id: '',
@@ -28,14 +24,6 @@ export default function AdminPerformance() {
     recommended_increment_pct: 12.0,
   });
 
-  const [goalForm, setGoalForm] = useState({
-    employee_id: '',
-    title: '',
-    description: '',
-    target_date: new Date().toISOString().split('T')[0],
-    weightage: 25,
-  });
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
@@ -43,18 +31,15 @@ export default function AdminPerformance() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [revs, gls, emps] = await Promise.all([
+      const [revs, emps] = await Promise.all([
         performanceService.getReviews(),
-        performanceService.getGoals(),
         employeeService.getEmployees(),
       ]);
       setReviews(revs);
-      setGoals(gls);
       setEmployees(emps);
       if (emps.length > 0) {
-        const firstId = emps[0].employee_id || emps[0].employeeId || emps[0].id;
+        const firstId = emps[0].employeeId || emps[0].employee_id || emps[0].id;
         if (!reviewForm.employee_id) setReviewForm((p) => ({ ...p, employee_id: firstId }));
-        if (!goalForm.employee_id) setGoalForm((p) => ({ ...p, employee_id: firstId }));
       }
     } catch (err) {
       console.error(err);
@@ -73,12 +58,23 @@ export default function AdminPerformance() {
     setSubmitting(true);
     setError(null);
     try {
+      const selectedEmp = employees.find((emp) => 
+        (emp.employeeId || emp.employee_id || emp.id) === reviewForm.employee_id ||
+        emp.id === reviewForm.employee_id ||
+        emp.email === reviewForm.employee_id
+      );
+
       await performanceService.submitReview({
         ...reviewForm,
+        employee_id: reviewForm.employee_id,
+        employee_name: selectedEmp ? (selectedEmp.name || selectedEmp.full_name || selectedEmp.fullName) : '',
+        employee_email: selectedEmp?.email || '',
+        department: selectedEmp ? (selectedEmp.department || selectedEmp.dept) : '',
         rating: parseFloat(reviewForm.rating),
         recommended_increment_pct: parseFloat(reviewForm.recommended_increment_pct) || 0,
       });
-      setSuccessMsg('Performance appraisal review recorded successfully.');
+      const targetName = selectedEmp ? (selectedEmp.name || selectedEmp.full_name || selectedEmp.fullName) : reviewForm.employee_id;
+      setSuccessMsg(`Performance appraisal for ${targetName} submitted and reflected on employee portal.`);
       setIsReviewModalOpen(false);
       fetchData();
     } catch (err) {
@@ -88,35 +84,11 @@ export default function AdminPerformance() {
     }
   };
 
-  const handleCreateGoal = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await performanceService.createGoal(goalForm);
-      setSuccessMsg('Performance goal assigned successfully.');
-      setIsGoalModalOpen(false);
-      setGoalForm((p) => ({ ...p, title: '', description: '' }));
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to assign goal.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleUpdateProgress = async (goalId, newProgress) => {
-    try {
-      await performanceService.updateGoalProgress(goalId, { progress: newProgress });
-      fetchData();
-    } catch (err) {
-      setError('Could not update goal progress.');
-    }
-  };
-
   const filteredReviews = reviews.filter((r) =>
     (r.employee_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.employee_id || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (r.employee_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.employeeId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.department || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const avgRating = reviews.length
@@ -130,16 +102,13 @@ export default function AdminPerformance() {
         <div className="hrms-page-title-group">
           <h1><Award size={28} className="text-forest" /> Performance Management & Appraisals</h1>
           <p className="hrms-page-subtitle">
-            Track workforce OKRs, record 1–5 performance evaluations, and direct salary increment recommendations.
+            Record 1–5 performance evaluations and direct salary increment recommendations.
           </p>
         </div>
 
         <div className="hrms-actions-group">
           <button type="button" className="hrms-btn-secondary" onClick={fetchData} disabled={loading}>
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-          </button>
-          <button type="button" className="hrms-btn-secondary" onClick={() => setIsGoalModalOpen(true)}>
-            <Plus size={16} /> Assign Goal
           </button>
           <button type="button" className="hrms-btn-primary" onClick={() => setIsReviewModalOpen(true)}>
             <Star size={16} /> Submit Appraisal
@@ -172,15 +141,6 @@ export default function AdminPerformance() {
 
         <div className="hrms-metric-card">
           <div className="hrms-metric-header">
-            <span className="hrms-metric-label">Active Company OKRs</span>
-            <div className="hrms-metric-icon-wrap"><Target size={18} /></div>
-          </div>
-          <div className="hrms-metric-value">{goals.length}</div>
-          <div className="hrms-metric-subtext">Employee goals monitored</div>
-        </div>
-
-        <div className="hrms-metric-card">
-          <div className="hrms-metric-header">
             <span className="hrms-metric-label">Appraisals Recorded</span>
             <div className="hrms-metric-icon-wrap"><TrendingUp size={18} /></div>
           </div>
@@ -189,121 +149,77 @@ export default function AdminPerformance() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #e2e8f0', marginBottom: '1.25rem' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('REVIEWS')}
-          style={{
-            padding: '0.625rem 1rem',
-            borderBottom: activeTab === 'REVIEWS' ? '2px solid #134e4a' : 'none',
-            color: activeTab === 'REVIEWS' ? '#134e4a' : '#64748b',
-            fontWeight: activeTab === 'REVIEWS' ? '700' : '500',
-            cursor: 'pointer',
-          }}
-        >
+      {/* Appraisal Reviews Header & Search */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', marginBottom: '1.25rem', paddingBottom: '0.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div style={{ borderBottom: '2px solid #134e4a', paddingBottom: '0.5rem', marginBottom: '-0.5rem', color: '#134e4a', fontWeight: '700', fontSize: '1rem' }}>
           Appraisal Reviews ({reviews.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('GOALS')}
-          style={{
-            padding: '0.625rem 1rem',
-            borderBottom: activeTab === 'GOALS' ? '2px solid #134e4a' : 'none',
-            color: activeTab === 'GOALS' ? '#134e4a' : '#64748b',
-            fontWeight: activeTab === 'GOALS' ? '700' : '500',
-            cursor: 'pointer',
-          }}
-        >
-          Performance Goals ({goals.length})
-        </button>
+        </div>
+        <div className="hrms-search-input-wrap" style={{ minWidth: '260px' }}>
+          <Search size={16} />
+          <input
+            type="text"
+            className="hrms-input"
+            placeholder="Search employee name or ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
       </div>
 
-      {/* Reviews Tab */}
-      {activeTab === 'REVIEWS' && (
-        <div className="hrms-card">
-          <div className="hrms-table-container">
-            <table className="hrms-table">
-              <thead>
+      {/* Reviews Table */}
+      <div className="hrms-card">
+        <div className="hrms-table-container">
+          <table className="hrms-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Review Cycle</th>
+                <th>Appraisal Rating</th>
+                <th>Manager Feedback & Strengths</th>
+                <th>Increment %</th>
+                <th>Evaluated By</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReviews.length === 0 ? (
                 <tr>
-                  <th>Employee</th>
-                  <th>Review Cycle</th>
-                  <th>Appraisal Rating</th>
-                  <th>Manager Feedback & Strengths</th>
-                  <th>Increment %</th>
-                  <th>Evaluated By</th>
-                  <th>Date</th>
+                  <td colSpan="7">
+                    <div className="hrms-empty-state">
+                      <Award className="hrms-empty-icon" />
+                      <p>No appraisal review records found.</p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredReviews.length === 0 ? (
-                  <tr>
-                    <td colSpan="7">
-                      <div className="hrms-empty-state">
-                        <Award className="hrms-empty-icon" />
-                        <p>No appraisal review records found.</p>
-                      </div>
+              ) : (
+                filteredReviews.map((r, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <strong>{r.employee_name || r.employee_id}</strong>
+                      <div className="hrms-metric-subtext">{r.employee_id} • {r.department}</div>
                     </td>
+                    <td>{r.review_period}</td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '0.25rem 0.5rem', borderRadius: '6px', fontWeight: '700', fontSize: '0.85rem' }}>
+                        <Star size={13} fill="#b45309" /> {parseFloat(r.rating).toFixed(1)} / 5.0
+                      </span>
+                    </td>
+                    <td style={{ maxWidth: '300px' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: '500', color: '#1e293b' }}>{r.strengths}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{r.manager_feedback}</div>
+                    </td>
+                    <td>
+                      <strong style={{ color: '#16a34a' }}>+{r.recommended_increment_pct || 0}%</strong>
+                    </td>
+                    <td>{r.evaluated_by}</td>
+                    <td>{r.created_at?.split('T')[0]}</td>
                   </tr>
-                ) : (
-                  filteredReviews.map((r, idx) => (
-                    <tr key={idx}>
-                      <td>
-                        <strong>{r.employee_name || r.employee_id}</strong>
-                        <div className="hrms-metric-subtext">{r.employee_id} • {r.department}</div>
-                      </td>
-                      <td>{r.review_period}</td>
-                      <td>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '0.25rem 0.5rem', borderRadius: '6px', fontWeight: '700', fontSize: '0.85rem' }}>
-                          <Star size={13} fill="#b45309" /> {parseFloat(r.rating).toFixed(1)} / 5.0
-                        </span>
-                      </td>
-                      <td style={{ maxWidth: '300px' }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: '500', color: '#1e293b' }}>{r.strengths}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{r.manager_feedback}</div>
-                      </td>
-                      <td>
-                        <strong style={{ color: '#16a34a' }}>+{r.recommended_increment_pct || 0}%</strong>
-                      </td>
-                      <td>{r.evaluated_by}</td>
-                      <td>{r.created_at?.split('T')[0]}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {/* Goals Tab */}
-      {activeTab === 'GOALS' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
-          {goals.map((g, idx) => (
-            <div key={idx} className="hrms-card" style={{ marginBottom: 0 }}>
-              <div className="hrms-card-body">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                  <h3 style={{ fontSize: '1rem', fontWeight: '700', color: '#0f172a', margin: 0 }}>{g.title}</h3>
-                  <span className="hrms-badge hrms-badge-info">{g.weightage || 20}% Weight</span>
-                </div>
-                <div className="hrms-metric-subtext" style={{ marginBottom: '0.75rem' }}>
-                  Assigned to: {g.employee_id} • Target: {g.target_date}
-                </div>
-                <p style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '1rem' }}>{g.description}</p>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
-                    <span>Completion</span>
-                    <strong>{g.progress || 0}%</strong>
-                  </div>
-                  <div style={{ height: '6px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${g.progress || 0}%`, height: '100%', backgroundColor: '#134e4a' }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
 
       {/* Submit Review Modal */}
       {isReviewModalOpen && (
@@ -328,11 +244,16 @@ export default function AdminPerformance() {
                       onChange={(e) => setReviewForm({ ...reviewForm, employee_id: e.target.value })}
                       required
                     >
-                      {employees.map((emp) => (
-                        <option key={emp.employee_id || emp.id} value={emp.employee_id || emp.id}>
-                          {emp.name || emp.full_name} ({emp.employee_id || emp.id})
-                        </option>
-                      ))}
+                      {employees.map((emp) => {
+                        const empEid = emp.employeeId || emp.employee_id || emp.id;
+                        const empName = emp.name || emp.full_name || emp.fullName || 'Employee';
+                        const empDept = emp.department || emp.dept || '';
+                        return (
+                          <option key={emp.id || empEid} value={empEid}>
+                            {empName} ({empEid}){empDept ? ` • ${empDept}` : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -401,97 +322,6 @@ export default function AdminPerformance() {
                 </button>
                 <button type="submit" className="hrms-btn-primary" disabled={submitting}>
                   {submitting ? 'Submitting...' : 'Save Appraisal'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Goal Modal */}
-      {isGoalModalOpen && (
-        <div className="hrms-modal-overlay" onClick={() => setIsGoalModalOpen(false)}>
-          <div className="hrms-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="hrms-modal-header">
-              <h3 className="hrms-modal-title">Assign OKR / Performance Goal</h3>
-              <button type="button" className="hrms-modal-close" onClick={() => setIsGoalModalOpen(false)}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateGoal}>
-              <div className="hrms-modal-body">
-                <div className="hrms-form-group">
-                  <label>Employee *</label>
-                  <select
-                    className="hrms-select"
-                    style={{ width: '100%' }}
-                    value={goalForm.employee_id}
-                    onChange={(e) => setGoalForm({ ...goalForm, employee_id: e.target.value })}
-                    required
-                  >
-                    {employees.map((emp) => (
-                      <option key={emp.employee_id || emp.id} value={emp.employee_id || emp.id}>
-                        {emp.name || emp.full_name} ({emp.employee_id || emp.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="hrms-form-group">
-                  <label>Goal Title *</label>
-                  <input
-                    type="text"
-                    className="hrms-input"
-                    placeholder="e.g. Complete ISO 27001 Security Audit"
-                    value={goalForm.title}
-                    onChange={(e) => setGoalForm({ ...goalForm, title: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="hrms-form-group">
-                  <label>Description & Success Metrics</label>
-                  <textarea
-                    rows="2"
-                    className="hrms-input"
-                    value={goalForm.description}
-                    onChange={(e) => setGoalForm({ ...goalForm, description: e.target.value })}
-                  />
-                </div>
-
-                <div className="hrms-form-row">
-                  <div className="hrms-form-group">
-                    <label>Target Completion Date</label>
-                    <input
-                      type="date"
-                      className="hrms-input"
-                      value={goalForm.target_date}
-                      onChange={(e) => setGoalForm({ ...goalForm, target_date: e.target.value })}
-                      required
-                    />
-                  </div>
-
-                  <div className="hrms-form-group">
-                    <label>Weightage %</label>
-                    <input
-                      type="number"
-                      className="hrms-input"
-                      value={goalForm.weightage}
-                      onChange={(e) => setGoalForm({ ...goalForm, weightage: e.target.value })}
-                      min="5"
-                      max="100"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="hrms-modal-footer">
-                <button type="button" className="hrms-btn-secondary" onClick={() => setIsGoalModalOpen(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="hrms-btn-primary" disabled={submitting}>
-                  {submitting ? 'Assigning...' : 'Assign Goal'}
                 </button>
               </div>
             </form>

@@ -3,24 +3,18 @@ import {
   Award,
   Star,
   TrendingUp,
-  Target,
-  CheckCircle2,
   AlertCircle,
-  Calendar,
-  UserCheck,
-  Clock,
   Sparkles,
-  ArrowUpRight,
   MessageSquare,
   ThumbsUp,
   Compass,
+  RefreshCw,
 } from 'lucide-react';
 import { performanceService } from '../../services/performanceService';
 import '../../styles/hrms.css';
 
 export default function EmployeePerformance() {
   const [reviews, setReviews] = useState([]);
-  const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -31,23 +25,20 @@ export default function EmployeePerformance() {
       return null;
     }
   })();
-  const employeeId = storedUser?.employeeId || storedUser?.employee_id || 'EMP-1001';
-  const employeeName = storedUser?.name || storedUser?.full_name || 'Employee';
+  const employeeId = storedUser?.employeeId || storedUser?.employee_id || storedUser?.id || storedUser?.uid || '';
+  const employeeEmail = storedUser?.email || '';
+  const employeeName = storedUser?.name || storedUser?.full_name || storedUser?.fullName || 'Employee';
 
   useEffect(() => {
     loadPerformanceData();
-  }, [employeeId]);
+  }, [employeeId, employeeEmail]);
 
   const loadPerformanceData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [revData, goalData] = await Promise.all([
-        performanceService.getReviews(employeeId),
-        performanceService.getGoals(employeeId),
-      ]);
+      const revData = await performanceService.getReviews(employeeId || employeeEmail || null);
       setReviews(Array.isArray(revData) ? revData : []);
-      setGoals(Array.isArray(goalData) ? goalData : []);
     } catch (err) {
       console.error('Failed to load employee performance data', err);
       setError('Unable to load performance appraisal details. Please try again later.');
@@ -68,8 +59,8 @@ export default function EmployeePerformance() {
   return (
     <div className="hrms-page-container animate-fade-in" style={{ maxWidth: '1060px', margin: '0 auto', padding: '16px' }}>
       {/* Page Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div
             style={{
               width: '40px',
@@ -93,6 +84,16 @@ export default function EmployeePerformance() {
             </p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={loadPerformanceData}
+          disabled={loading}
+          className="hrms-btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
       </div>
 
       {loading ? (
@@ -294,118 +295,12 @@ export default function EmployeePerformance() {
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '6px' }}>
                 Appraisal Review In Progress
               </h3>
-              <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: '460px', margin: '0 auto' }}>
-                Your annual appraisal rating and manager feedback have not yet been published by administration. They will appear here once officially submitted.
+              <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: '480px', margin: '0 auto' }}>
+                No official appraisal scorecard has been published yet for {employeeName}{employeeId ? ` (${employeeId})` : ''}. Once your evaluation is recorded by administration, it will appear here immediately.
               </p>
             </div>
           )}
 
-          {/* Performance Goals & OKRs Section */}
-          <div className="hrms-card" style={{ padding: '22px', borderRadius: '18px', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0b3d2b', margin: 0 }}>
-                  Active Performance Goals & OKRs
-                </h3>
-                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
-                  Key milestones contributing to your performance rating
-                </p>
-              </div>
-              <span
-                style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  color: '#047857',
-                  backgroundColor: '#ecfdf5',
-                  padding: '4px 10px',
-                  borderRadius: '999px',
-                }}
-              >
-                {goals.length} Goals Assigned
-              </span>
-            </div>
-
-            {goals.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: '0.875rem' }}>
-                No performance goals currently active.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {goals.map((goal, idx) => (
-                  <div
-                    key={goal.id || idx}
-                    style={{
-                      backgroundColor: '#f8fafc',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '14px',
-                      padding: '16px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
-                            {goal.title}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              color: goal.status === 'COMPLETED' ? '#047857' : '#0284c7',
-                              backgroundColor: goal.status === 'COMPLETED' ? '#d1fae5' : '#e0f2fe',
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                            }}
-                          >
-                            {goal.status || 'IN_PROGRESS'}
-                          </span>
-                        </div>
-                        <p style={{ fontSize: '0.825rem', color: '#64748b', margin: '4px 0 0 0' }}>
-                          {goal.description}
-                        </p>
-                      </div>
-
-                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>
-                          Weightage: <strong>{goal.weightage || 20}%</strong>
-                        </span>
-                        {goal.target_date && (
-                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>
-                            Target: {goal.target_date}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
-                      <div
-                        style={{
-                          flex: 1,
-                          height: '8px',
-                          backgroundColor: '#e2e8f0',
-                          borderRadius: '999px',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${Math.min(100, Math.max(0, goal.progress || 0))}%`,
-                            height: '100%',
-                            backgroundColor: (goal.progress >= 100) ? '#10b981' : '#0d9488',
-                            transition: 'width 0.4s ease',
-                          }}
-                        />
-                      </div>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', minWidth: '42px', textAlign: 'right' }}>
-                        {goal.progress || 0}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
           {/* Historical Reviews Table */}
           {reviews.length > 1 && (

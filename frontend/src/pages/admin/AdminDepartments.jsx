@@ -21,7 +21,7 @@ export default function AdminDepartments() {
 
   const [desigForm, setDesigForm] = useState({
     title: '',
-    department: 'Engineering',
+    department: 'Web Developer',
     level: 'Mid',
     description: '',
   });
@@ -76,7 +76,7 @@ export default function AdminDepartments() {
       await departmentService.createDesignation(desigForm);
       setSuccessMsg('Job designation created successfully.');
       setIsDesigModalOpen(false);
-      setDesigForm({ title: '', department: departments[0]?.name || 'Engineering', level: 'Mid', description: '' });
+      setDesigForm({ title: '', department: departments[0]?.name || 'Web Developer', level: 'Mid', description: '' });
       fetchData();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to create designation.');
@@ -84,6 +84,29 @@ export default function AdminDepartments() {
       setSubmitting(false);
     }
   };
+
+  const TARGET_ORDER = [
+    'human resources',
+    'web developer',
+    'python developer',
+    'finance & payroll',
+  ];
+
+  const displayDepartments = [...departments]
+    .filter((d) => TARGET_ORDER.includes((d.name || '').trim().toLowerCase()))
+    .sort((a, b) => {
+      const idxA = TARGET_ORDER.indexOf((a.name || '').trim().toLowerCase());
+      const idxB = TARGET_ORDER.indexOf((b.name || '').trim().toLowerCase());
+      return idxA - idxB;
+    });
+
+  const displayDesignations = [...designations]
+    .filter((d) => TARGET_ORDER.includes((d.department || '').trim().toLowerCase()))
+    .sort((a, b) => {
+      const idxA = TARGET_ORDER.indexOf((a.department || '').trim().toLowerCase());
+      const idxB = TARGET_ORDER.indexOf((b.department || '').trim().toLowerCase());
+      return idxA - idxB;
+    });
 
   return (
     <div className="hrms-page-container">
@@ -123,10 +146,10 @@ export default function AdminDepartments() {
 
       {/* Departments Grid */}
       <h2 style={{ fontSize: '1.15rem', fontWeight: '700', marginBottom: '0.75rem', color: '#0f172a' }}>
-        Operational Departments ({departments.length})
+        Operational Departments ({displayDepartments.length})
       </h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-        {departments.map((d, i) => (
+        {displayDepartments.map((d, i) => (
           <div key={i} className="hrms-card" style={{ marginBottom: 0 }}>
             <div className="hrms-card-body">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -150,7 +173,7 @@ export default function AdminDepartments() {
       <div className="hrms-card">
         <div className="hrms-card-header">
           <h2 className="hrms-card-title"><Briefcase size={20} /> Standard Designations & Job Titles</h2>
-          <span className="hrms-metric-subtext">{designations.length} Active Positions</span>
+          <span className="hrms-metric-subtext">{displayDesignations.length} Active Positions</span>
         </div>
 
         <div className="hrms-table-container">
@@ -164,7 +187,7 @@ export default function AdminDepartments() {
               </tr>
             </thead>
             <tbody>
-              {designations.map((desig, idx) => (
+              {displayDesignations.map((desig, idx) => (
                 <tr key={idx}>
                   <td>
                     <strong>{desig.title}</strong>
@@ -278,7 +301,7 @@ export default function AdminDepartments() {
                       value={desigForm.department}
                       onChange={(e) => setDesigForm({ ...desigForm, department: e.target.value })}
                     >
-                      {departments.map((d, i) => (
+                      {displayDepartments.map((d, i) => (
                         <option key={i} value={d.name}>{d.name}</option>
                       ))}
                     </select>

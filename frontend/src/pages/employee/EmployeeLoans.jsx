@@ -13,6 +13,17 @@ export default function EmployeeLoans() {
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
+  const storedUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('arshith_user')) || null;
+    } catch {
+      return null;
+    }
+  })();
+  const employeeId = storedUser?.employeeId || storedUser?.employee_id || storedUser?.id || storedUser?.uid || '';
+  const employeeEmail = storedUser?.email || '';
+  const employeeName = storedUser?.name || storedUser?.full_name || storedUser?.fullName || 'Employee';
+
   const [formState, setFormState] = useState({
     loan_type: 'Salary Advance',
     principal_amount: 25000,
@@ -23,8 +34,8 @@ export default function EmployeeLoans() {
   const fetchMyLoans = async () => {
     setLoading(true);
     try {
-      const data = await loanService.getLoans();
-      setLoans(data);
+      const data = await loanService.getLoans(employeeId || employeeEmail || null);
+      setLoans(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
       setError('Failed to fetch personal loan requests.');
@@ -35,7 +46,7 @@ export default function EmployeeLoans() {
 
   useEffect(() => {
     fetchMyLoans();
-  }, []);
+  }, [employeeId, employeeEmail]);
 
   const handleApplySubmit = async (e) => {
     e.preventDefault();
@@ -43,6 +54,9 @@ export default function EmployeeLoans() {
     setError(null);
     try {
       await loanService.applyLoan({
+        employee_id: employeeId || employeeEmail,
+        employee_name: employeeName,
+        employee_email: employeeEmail,
         loan_type: formState.loan_type,
         principal_amount: parseFloat(formState.principal_amount),
         term_months: parseInt(formState.term_months, 10),
@@ -63,15 +77,31 @@ export default function EmployeeLoans() {
   const getStatusBadge = (status) => {
     const s = (status || 'PENDING').toUpperCase();
     if (s === 'ACTIVE' || s === 'APPROVED') {
-      return <span className="hrms-badge hrms-badge-success"><CheckCircle2 size={12} /> ACTIVE</span>;
+      return (
+        <span className="hrms-badge hrms-badge-success" style={{ backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+          <CheckCircle2 size={12} /> APPROVED
+        </span>
+      );
     }
     if (s === 'CLOSED') {
-      return <span className="hrms-badge hrms-badge-neutral"><CheckCircle2 size={12} /> CLOSED</span>;
+      return (
+        <span className="hrms-badge hrms-badge-neutral">
+          <CheckCircle2 size={12} /> CLOSED / REPAID
+        </span>
+      );
     }
     if (s === 'REJECTED') {
-      return <span className="hrms-badge hrms-badge-danger"><XCircle size={12} /> REJECTED</span>;
+      return (
+        <span className="hrms-badge hrms-badge-danger" style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+          <XCircle size={12} /> REJECTED
+        </span>
+      );
     }
-    return <span className="hrms-badge hrms-badge-warning"><Clock size={12} /> PENDING APPROVAL</span>;
+    return (
+      <span className="hrms-badge hrms-badge-warning" style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+        <Clock size={12} /> PENDING REVIEW
+      </span>
+    );
   };
 
   return (
@@ -195,7 +225,19 @@ export default function EmployeeLoans() {
                           ₹{parseFloat(l.remaining_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </strong>
                       </td>
-                      <td>{l.applied_date || l.created_at?.split('T')[0]}</td>
+                      <td>
+                        <div>{l.applied_date || l.created_at?.split('T')[0]}</div>
+                        {['APPROVED', 'ACTIVE'].includes((l.status || '').toUpperCase()) && l.approved_at && (
+                          <div style={{ fontSize: '0.725rem', color: '#047857', fontWeight: 600 }}>
+                            Approved: {l.approved_at?.split('T')[0]}
+                          </div>
+                        )}
+                        {(l.status || '').toUpperCase() === 'REJECTED' && l.rejection_reason && (
+                          <div style={{ fontSize: '0.725rem', color: '#b91c1c' }}>
+                            {l.rejection_reason}
+                          </div>
+                        )}
+                      </td>
                       <td>{getStatusBadge(l.status)}</td>
                     </tr>
                   );

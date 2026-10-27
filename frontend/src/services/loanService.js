@@ -1,8 +1,9 @@
 import api from './api';
 
 export const loanService = {
-  getLoans: async () => {
-    const response = await api.get('/api/loans');
+  getLoans: async (employeeId = null) => {
+    const url = employeeId ? `/api/loans?employee_id=${employeeId}` : '/api/loans';
+    const response = await api.get(url);
     return response.data;
   },
 

@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { LogOut, MessageSquare } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
+import { chatService } from '../../services/chatService';
 
 /**
  * EmployeeNavbar - Top application header for the Employee Portal
@@ -9,6 +10,25 @@ import BrandLogo from '../common/BrandLogo';
  */
 export default function EmployeeNavbar({ onOpenDrawer }) {
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    chatService.getUnreadCount().then((count) => {
+      if (isMounted) setUnreadCount(count);
+    }).catch(() => {});
+
+    const interval = setInterval(() => {
+      chatService.getUnreadCount().then((count) => {
+        if (isMounted) setUnreadCount(count);
+      }).catch(() => {});
+    }, 6000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('arshith_role');
@@ -56,6 +76,48 @@ export default function EmployeeNavbar({ onOpenDrawer }) {
 
       {/* Right: User Avatar & Logout Button matching Screenshot 4 */}
       <div className="portal-nav-right">
+        <button
+          type="button"
+          onClick={() => navigate('/employee/chat')}
+          style={{
+            position: 'relative',
+            padding: '6px 11px',
+            borderRadius: '8px',
+            backgroundColor: '#eef2ff',
+            color: '#4f46e5',
+            fontSize: '0.78rem',
+            fontWeight: '700',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            border: '1px solid #c7d2fe',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Open Teams Chat"
+        >
+          <MessageSquare size={15} />
+          <span>Teams</span>
+          {unreadCount > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '-5px',
+                right: '-5px',
+                backgroundColor: '#ef4444',
+                color: '#ffffff',
+                fontSize: '0.62rem',
+                fontWeight: '800',
+                padding: '1px 5px',
+                borderRadius: '10px',
+                border: '2px solid #ffffff',
+              }}
+            >
+              {unreadCount}
+            </span>
+          )}
+        </button>
+
         <div
           className="user-profile-badge"
           onClick={() => navigate('/employee/profile')}

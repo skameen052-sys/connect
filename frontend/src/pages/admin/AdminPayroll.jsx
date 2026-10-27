@@ -27,8 +27,8 @@ export default function AdminPayroll() {
   const [calcForm, setCalcForm] = useState({
     month: currentDate.getMonth() + 1,
     year: currentDate.getFullYear(),
-    custom_payroll_days: 30,
-    notes: 'Monthly attendance-driven payroll run',
+    custom_payroll_days: 26,
+    notes: '26 Working Days basis (Accounts for 4 Sundays & Festival Holidays)',
   });
 
   const fetchRuns = async () => {
@@ -425,7 +425,7 @@ export default function AdminPayroll() {
                   {['CALCULATED', 'UNDER_REVIEW'].includes(selectedRun.status) && (
                     <button
                       type="button"
-                      className="hrms-btn-primary"
+                      className="hrms-btn-secondary"
                       style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
                       onClick={() => handleApproveRun(selectedRun.id || selectedRun._firestore_id)}
                       disabled={actionLoading}
@@ -434,7 +434,7 @@ export default function AdminPayroll() {
                     </button>
                   )}
 
-                  {selectedRun.status === 'APPROVED' && (
+                  {!['FINALIZED', 'PAID', 'PAYMENT_PROCESSING'].includes(selectedRun.status) && (
                     <button
                       type="button"
                       className="hrms-btn-primary"
@@ -442,7 +442,7 @@ export default function AdminPayroll() {
                       onClick={() => handleFinalizeRun(selectedRun.id || selectedRun._firestore_id)}
                       disabled={actionLoading}
                     >
-                      <Lock size={14} /> Finalize & Lock Batch
+                      <Lock size={14} /> Finalize & Generate Payslips
                     </button>
                   )}
 
@@ -478,18 +478,26 @@ export default function AdminPayroll() {
                       <tr key={idx}>
                         <td>
                           <strong>{d.employee_name}</strong>
-                          <div className="hrms-metric-subtext">{d.employee_id} • {d.department}</div>
+                          <div className="hrms-metric-subtext">{d.employeeId || d.employee_id} • {d.department}</div>
                         </td>
                         <td>
                           <span style={{ color: '#16a34a', fontWeight: '600' }}>{d.payable_days} Days</span>
                           {d.unpaid_days > 0 && (
                             <span style={{ color: '#dc2626', marginLeft: '0.35rem' }}>({d.unpaid_days} LOP)</span>
                           )}
+                          <div className="hrms-metric-subtext" style={{ fontSize: '0.7rem' }}>
+                            {d.sundays || 4} Sundays • {d.holidays || 0} Holidays
+                          </div>
                         </td>
                         <td>₹{parseFloat(d.gross_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td style={{ color: '#dc2626' }}>- ₹{parseFloat(d.loss_of_pay || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td>₹{parseFloat(d.adjusted_gross || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        <td>₹{parseFloat(d.employee_pf || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td>
+                          <div>₹{parseFloat(d.employee_pf || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                          <div className="hrms-metric-subtext" style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                            Base: ₹{parseFloat(d.pf_wage_base || 0).toLocaleString('en-IN')}
+                          </div>
+                        </td>
                         <td>₹{(parseFloat(d.professional_tax || 0) + parseFloat(d.income_tax_tds || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td>
                           <strong style={{ color: '#134e4a', fontSize: '0.95rem' }}>
@@ -504,7 +512,7 @@ export default function AdminPayroll() {
                             title="Download PDF Payslip"
                             onClick={async () => {
                               try {
-                                await payslipService.downloadPayslipPdf(d.employee_id);
+                                await payslipService.downloadPayslipPdf(d.employeeId || d.employee_id);
                               } catch (e) {
                                 alert('Payslip available once batch is finalized.');
                               }

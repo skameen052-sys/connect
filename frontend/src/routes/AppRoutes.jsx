@@ -24,9 +24,11 @@ import EmployeeAnnouncements from '../pages/employee/EmployeeAnnouncements';
 import EmployeeProfile from '../pages/employee/EmployeeProfile';
 import EmployeeWorkAssignments from '../pages/employee/EmployeeWorkAssignments';
 import EmployeeWorkUpdates from '../pages/employee/EmployeeWorkUpdates';
+import EmployeeChat from '../pages/employee/EmployeeChat';
 
 // Admin Portal Pages (Canonical 15 Modules)
 import AdminDashboard from '../pages/admin/AdminDashboard';
+import AdminChat from '../pages/admin/AdminChat';
 import AdminAttendance from '../pages/admin/AdminAttendance';
 import AdminLeaveManagement from '../pages/admin/AdminLeaveManagement';
 import AdminHolidayManagement from '../pages/admin/AdminHolidayManagement';
@@ -92,6 +94,7 @@ export default function AppRoutes() {
           <Route path="profile" element={<EmployeeProfile />} />
           <Route path="assignments" element={<EmployeeWorkAssignments />} />
           <Route path="updates" element={<EmployeeWorkUpdates />} />
+          <Route path="chat" element={<EmployeeChat />} />
           {/* Employee Self-Service HRMS Extensions */}
           <Route path="payslips" element={<EmployeePayslips />} />
           <Route path="loans" element={<EmployeeLoans />} />
@@ -117,6 +120,8 @@ export default function AppRoutes() {
           <Route path="employees/list" element={<AdminEmployeeList />} />
           <Route path="employee-list" element={<AdminEmployeeList />} />
           <Route path="teams" element={<AdminTeams />} />
+          <Route path="chat" element={<AdminChat />} />
+          <Route path="teams/chat" element={<AdminChat />} />
           <Route path="assignments" element={<AdminWorkAssignments />} />
           <Route path="work-assignments" element={<AdminWorkAssignments />} />
           <Route path="updates" element={<AdminWorkUpdates />} />

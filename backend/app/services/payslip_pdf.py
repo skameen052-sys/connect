@@ -191,6 +191,10 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
     pay_days = detail.get("payable_days", 30)
     unpaid_days = detail.get("unpaid_days", 0)
 
+    sundays = detail.get("sundays", 4)
+    holidays = detail.get("holidays", 0)
+    pf_wage = detail.get("pf_wage_base", 0.0)
+
     meta_data = [
         [
             Paragraph("<b>Employee ID:</b>", style_body),
@@ -202,7 +206,7 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
             Paragraph("<b>Employee Name:</b>", style_body),
             Paragraph(emp_name, style_body_bold),
             Paragraph("<b>Payable Days:</b>", style_body),
-            Paragraph(str(pay_days), style_body_bold),
+            Paragraph(f"{pay_days} Days (Incl. {sundays} Sundays & {holidays} Holidays)", style_body_bold),
         ],
         [
             Paragraph("<b>Department:</b>", style_body),
@@ -213,8 +217,8 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
         [
             Paragraph("<b>Designation:</b>", style_body),
             Paragraph(desig, style_body),
-            Paragraph("<b>Bank Name:</b>", style_body),
-            Paragraph(bank, style_body),
+            Paragraph("<b>Paid Weekly Offs & Holidays:</b>", style_body),
+            Paragraph(f"{sundays} Sundays + {holidays} Festival Holidays", style_body),
         ],
         [
             Paragraph("<b>PAN Number:</b>", style_body),
@@ -272,7 +276,7 @@ def generate_payslip_pdf(detail: Dict[str, Any], run_info: Dict[str, Any]) -> by
         [
             Paragraph("Basic Salary", style_body),
             Paragraph(f"₹{basic:,.2f}", style_body),
-            Paragraph("Employee Provident Fund (EPF)", style_body),
+            Paragraph(f"Employee Provident Fund (EPF 12%)", style_body),
             Paragraph(f"₹{pf:,.2f}", style_body),
         ],
         [

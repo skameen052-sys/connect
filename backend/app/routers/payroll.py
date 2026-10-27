@@ -164,42 +164,80 @@ def finalize_payroll_run(run_id: str, payload: PayrollActionRequest, current_use
         raise HTTPException(status_code=404, detail="Payroll run not found.")
 
     cur_status = str(run.get("status", "")).upper()
-    if cur_status != "APPROVED":
+    if cur_status not in ["APPROVED", "CALCULATED", "UNDER_REVIEW"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Only APPROVED payroll runs can be finalized. Current status is '{cur_status}'."
+            detail=f"Only APPROVED or CALCULATED payroll runs can be finalized. Current status is '{cur_status}'."
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     finalizer = getattr(current_user, "email", "admin")
     details = run.get("details", [])
 
-    # 1. Generate payslips in collection
+    # Clean up any existing payslips for this run to avoid duplicates
+    existing_payslips = FirestoreService.get_all("payslips")
+    for ep in existing_payslips:
+        if str(ep.get("payroll_run_id")) == str(run_id):
+            ep_id = ep.get("id") or ep.get("_firestore_id")
+            if ep_id:
+                try:
+                    FirestoreService.delete("payslips", str(ep_id))
+                except Exception:
+                    pass
+
+    # 1. Generate payslips in collection with rich employee identifiers and statutory breakdowns
     month = run.get("month", 1)
     year = run.get("year", 2026)
     month_name = run.get("month_name", "Month")
 
     for d in details:
         emp_id = str(d.get("employee_id"))
-        ps_num = f"PS-{year}{month:02d}-{emp_id}"
+        emp_code = str(d.get("employeeId") or emp_id)
+        emp_email = str(d.get("employee_email") or "")
+        emp_doc_id = str(d.get("employee_doc_id") or "")
+        ps_num = f"PS-{year}{month:02d}-{emp_code or emp_id}"
         
         payslip_doc = {
             "payslip_number": ps_num,
             "payroll_run_id": str(run_id),
             "employee_id": emp_id,
+            "employeeId": emp_code,
+            "employee_email": emp_email,
+            "employee_doc_id": emp_doc_id,
             "employee_name": d.get("employee_name"),
             "department": d.get("department"),
             "designation": d.get("designation"),
             "month": month,
             "year": year,
             "month_name": month_name,
-            "payable_days": d.get("payable_days"),
-            "unpaid_days": d.get("unpaid_days"),
-            "gross_salary": d.get("gross_salary"),
-            "loss_of_pay": d.get("loss_of_pay"),
-            "adjusted_gross": d.get("adjusted_gross"),
-            "total_deductions": d.get("total_deductions"),
-            "net_salary": d.get("net_salary"),
+            "total_days": d.get("total_days", 30),
+            "payable_days": d.get("payable_days", 30),
+            "unpaid_days": d.get("unpaid_days", 0),
+            "sundays": d.get("sundays", 4),
+            "weekly_offs": d.get("sundays", 4),
+            "holidays": d.get("holidays", 0),
+            "holiday_names": d.get("holiday_names", []),
+            "present_days": d.get("present_days", 0.0),
+            "approved_leave_days": d.get("approved_leave_days", 0.0),
+            "basic_salary": d.get("basic_salary", 0.0),
+            "hra": d.get("hra", 0.0),
+            "other_allowances": d.get("other_allowances", 0.0),
+            "gross_salary": d.get("gross_salary", 0.0),
+            "loss_of_pay": d.get("loss_of_pay", 0.0),
+            "adjusted_gross": d.get("adjusted_gross", 0.0),
+            "pf_wage_base": d.get("pf_wage_base", 0.0),
+            "employee_pf": d.get("employee_pf", 0.0),
+            "employer_pf": d.get("employer_pf", 0.0),
+            "employee_esi": d.get("employee_esi", 0.0),
+            "professional_tax": d.get("professional_tax", 0.0),
+            "income_tax_tds": d.get("income_tax_tds", 0.0),
+            "loan_deduction": d.get("loan_deduction", 0.0),
+            "total_deductions": d.get("total_deductions", 0.0),
+            "net_salary": d.get("net_salary", 0.0),
+            "bank_name": d.get("bank_name", "HDFC Bank"),
+            "account_number": d.get("account_number", "XXXX-XXXX-XXXX"),
+            "pan_number": d.get("pan_number", "ABCDE1234F"),
+            "uan_number": d.get("uan_number", "100123456789"),
             "detail": d,
             "status": "Generated",
             "generated_at": now_iso,

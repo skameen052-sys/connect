@@ -220,7 +220,8 @@ export default function AdminSalaryStructures() {
               onChange={(e) => setSelectedDept(e.target.value)}
             >
               <option value="ALL">All Departments</option>
-              <option value="Engineering">Engineering</option>
+              <option value="Web Developer">Web Developer</option>
+              <option value="Python Developer">Python Developer</option>
               <option value="Human Resources">Human Resources</option>
               <option value="Finance & Payroll">Finance & Payroll</option>
               <option value="Operations">Operations</option>

@@ -1,8 +1,9 @@
 import api from './api';
 
 export const separationService = {
-  getRequests: async () => {
-    const response = await api.get('/api/separation/requests');
+  getRequests: async (employeeId = null) => {
+    const url = employeeId ? `/api/separation/requests?employee_id=${encodeURIComponent(employeeId)}` : '/api/separation/requests';
+    const response = await api.get(url);
     return response.data;
   },
 
@@ -13,6 +14,11 @@ export const separationService = {
 
   approveResignation: async (id, payload) => {
     const response = await api.patch(`/api/separation/${id}/approve`, payload);
+    return response.data;
+  },
+
+  rejectResignation: async (id, payload) => {
+    const response = await api.patch(`/api/separation/${id}/reject`, payload);
     return response.data;
   },
 

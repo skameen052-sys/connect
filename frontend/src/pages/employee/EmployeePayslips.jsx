@@ -79,7 +79,7 @@ export default function EmployeePayslips() {
                   {latest.month_name || latest.month} {latest.year}
                 </h2>
                 <div style={{ opacity: 0.85, fontSize: '0.85rem' }}>
-                  Payable Days: {latest.payable_days} Days • Ref: {latest.payslip_number}
+                  Payable Days: {latest.payable_days} Days (Incl. {latest.sundays || 4} Sundays & {latest.holidays || 0} Festival Holidays) • EPF (12%): ₹{parseFloat(latest.employee_pf || 0).toLocaleString('en-IN')} • Ref: {latest.payslip_number}
                 </div>
               </div>
 
@@ -145,6 +145,9 @@ export default function EmployeePayslips() {
                       <td>{p.payslip_number || pId}</td>
                       <td>
                         <span style={{ color: '#16a34a', fontWeight: '600' }}>{p.payable_days} Days</span>
+                        <div className="hrms-metric-subtext" style={{ fontSize: '0.7rem' }}>
+                          {p.sundays || 4} Sundays • {p.holidays || 0} Holidays
+                        </div>
                       </td>
                       <td>₹{parseFloat(p.gross_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                       <td style={{ color: '#dc2626' }}>- ₹{parseFloat(p.total_deductions || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
@@ -203,6 +206,9 @@ export default function EmployeePayslips() {
                 <div style={{ fontSize: '1.75rem', fontWeight: '700', color: '#134e4a' }}>
                   ₹{parseFloat(selectedPayslip.net_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </div>
+                <div style={{ fontSize: '0.78rem', color: '#047857', marginTop: '0.25rem' }}>
+                  Payable Days: {selectedPayslip.payable_days} Days (Includes {selectedPayslip.sundays || 4} Sundays & {selectedPayslip.holidays || 0} Festival Holidays)
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
@@ -212,21 +218,45 @@ export default function EmployeePayslips() {
                     <span>Gross Salary:</span>
                     <strong>₹{parseFloat(selectedPayslip.gross_salary || 0).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', color: '#dc2626' }}>
-                    <span>Loss of Pay (LOP):</span>
-                    <strong>- ₹{parseFloat(selectedPayslip.loss_of_pay || 0).toLocaleString('en-IN')}</strong>
+                  {parseFloat(selectedPayslip.loss_of_pay || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', color: '#dc2626' }}>
+                      <span>Loss of Pay (LOP):</span>
+                      <strong>- ₹{parseFloat(selectedPayslip.loss_of_pay || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', color: '#0f766e', fontWeight: 600 }}>
+                    <span>Adjusted Gross:</span>
+                    <strong>₹{parseFloat(selectedPayslip.adjusted_gross || selectedPayslip.gross_salary || 0).toLocaleString('en-IN')}</strong>
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontWeight: '600', marginBottom: '0.5rem', color: '#334155' }}>Deductions:</div>
+                  <div style={{ fontWeight: '600', marginBottom: '0.5rem', color: '#334155' }}>Statutory Deductions:</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
+                    <span>EPF (12%):</span>
+                    <strong style={{ color: '#0f766e' }}>₹{parseFloat(selectedPayslip.employee_pf || 0).toLocaleString('en-IN')}</strong>
+                  </div>
+                  {parseFloat(selectedPayslip.employee_esi || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
+                      <span>ESIC (0.75%):</span>
+                      <strong>₹{parseFloat(selectedPayslip.employee_esi || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
+                  {parseFloat(selectedPayslip.professional_tax || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
+                      <span>Professional Tax:</span>
+                      <strong>₹{parseFloat(selectedPayslip.professional_tax || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
+                  {parseFloat(selectedPayslip.loan_deduction || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
+                      <span>Loan EMI:</span>
+                      <strong>₹{parseFloat(selectedPayslip.loan_deduction || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', borderTop: '1px solid #e2e8f0', marginTop: '0.25rem' }}>
                     <span>Total Deductions:</span>
                     <strong style={{ color: '#dc2626' }}>₹{parseFloat(selectedPayslip.total_deductions || 0).toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
-                    <span>Payable Days:</span>
-                    <strong>{selectedPayslip.payable_days} Days</strong>
                   </div>
                 </div>
               </div>

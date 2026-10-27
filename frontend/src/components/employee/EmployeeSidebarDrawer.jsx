@@ -14,8 +14,10 @@ import {
   Coins,
   UserMinus,
   Award,
+  MessageSquare,
 } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
+import { chatService } from '../../services/chatService';
 
 /**
  * EmployeeSidebarDrawer - Left-side slide-over navigation drawer
@@ -24,6 +26,15 @@ import BrandLogo from '../common/BrandLogo';
 export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    chatService.getUnreadCount().then((count) => {
+      if (isMounted) setUnreadChatCount(count);
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [location.pathname]);
 
   // Close on Escape key
   useEffect(() => {
@@ -66,6 +77,7 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
   // Canonical employee nav items with HRMS self-service extensions
   const navItems = [
     { label: 'Dashboard', path: '/employee/dashboard', icon: Home },
+    { label: 'Teams Chat', path: '/employee/chat', icon: MessageSquare, hasBadge: true },
     { label: 'Attendance', path: '/employee/attendance', icon: Clock },
     { label: 'Leave Management', path: '/employee/leaves', icon: FileText },
     { label: 'My Payslips', path: '/employee/payslips', icon: Receipt },
@@ -146,6 +158,21 @@ export default function EmployeeSidebarDrawer({ isOpen, onClose }) {
                   <Icon size={20} />
                 </span>
                 <span className="drawer-item-label">{item.label}</span>
+                {item.hasBadge && unreadChatCount > 0 && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      backgroundColor: '#4f46e5',
+                      color: '#ffffff',
+                      fontSize: '0.7rem',
+                      fontWeight: '700',
+                      padding: '1px 7px',
+                      borderRadius: '10px',
+                    }}
+                  >
+                    {unreadChatCount}
+                  </span>
+                )}
               </button>
             );
           })}

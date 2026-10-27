@@ -21,7 +21,7 @@ export default function AdminRecruitment() {
 
   const [jobForm, setJobForm] = useState({
     title: '',
-    department: 'Engineering',
+    department: 'Web Developer',
     location: 'HQ Office',
     employment_type: 'Full-time',
     vacancies: 2,
@@ -43,7 +43,7 @@ export default function AdminRecruitment() {
   const [convertForm, setConvertForm] = useState({
     employee_id: '',
     designation: '',
-    department: 'Engineering',
+    department: 'Web Developer',
     joining_date: new Date().toISOString().split('T')[0],
     basic_salary: 25000,
     hra: 10000,
@@ -496,10 +496,11 @@ export default function AdminRecruitment() {
                       value={jobForm.department}
                       onChange={(e) => setJobForm({ ...jobForm, department: e.target.value })}
                     >
-                      <option value="Engineering">Engineering</option>
+                      <option value="Web Developer">Web Developer</option>
                       <option value="Human Resources">Human Resources</option>
                       <option value="Finance & Payroll">Finance & Payroll</option>
-                      <option value="Product & Design">Product & Design</option>
+                      <option value="Python Developer">Python Developer</option>
+                      <option value="Marketing & Sales">Marketing & Sales</option>
                       <option value="Operations">Operations</option>
                     </select>
                   </div>
@@ -690,10 +691,11 @@ export default function AdminRecruitment() {
                       value={convertForm.department}
                       onChange={(e) => setConvertForm({ ...convertForm, department: e.target.value })}
                     >
-                      <option value="Engineering">Engineering</option>
+                      <option value="Web Developer">Web Developer</option>
                       <option value="Human Resources">Human Resources</option>
                       <option value="Finance & Payroll">Finance & Payroll</option>
-                      <option value="Product & Design">Product & Design</option>
+                      <option value="Python Developer">Python Developer</option>
+                      <option value="Marketing & Sales">Marketing & Sales</option>
                       <option value="Operations">Operations</option>
                     </select>
                   </div>

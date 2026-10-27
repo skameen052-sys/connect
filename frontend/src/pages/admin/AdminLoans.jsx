@@ -12,6 +12,11 @@ export default function AdminLoans() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState(null);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [selectedLoanForReject, setSelectedLoanForReject] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [selectedLoanForVerify, setSelectedLoanForVerify] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
@@ -20,7 +25,7 @@ export default function AdminLoans() {
     setLoading(true);
     try {
       const data = await loanService.getLoans();
-      setLoans(data);
+      setLoans(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
       setError('Failed to fetch employee loan applications.');
@@ -33,11 +38,19 @@ export default function AdminLoans() {
     fetchLoans();
   }, []);
 
-  const handleUpdateStatus = async (loanId, newStatus) => {
+  const handleUpdateStatus = async (loanId, newStatus, reason = null) => {
     setActionLoading(true);
+    setError(null);
     try {
-      await loanService.updateStatus(loanId, { status: newStatus });
-      setSuccessMsg(`Loan ${newStatus.toLowerCase()} successfully.`);
+      const payload = { status: newStatus };
+      if (reason) payload.rejection_reason = reason;
+      await loanService.updateStatus(loanId, payload);
+      setSuccessMsg(`Loan application ${newStatus === 'APPROVED' ? 'approved' : 'rejected'} successfully and updated on employee portal.`);
+      setRejectModalOpen(false);
+      setVerifyModalOpen(false);
+      setSelectedLoanForReject(null);
+      setSelectedLoanForVerify(null);
+      setRejectionReason('');
       fetchLoans();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to update loan status.');
@@ -60,6 +73,8 @@ export default function AdminLoans() {
     const matchesSearch =
       (l.employee_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (l.employee_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (l.employeeId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (l.department || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (l.loan_type || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || (l.status || '').toUpperCase() === statusFilter;
     return matchesSearch && matchesStatus;
@@ -76,15 +91,31 @@ export default function AdminLoans() {
   const getStatusBadge = (status) => {
     const s = (status || 'PENDING').toUpperCase();
     if (s === 'ACTIVE' || s === 'APPROVED') {
-      return <span className="hrms-badge hrms-badge-success"><CheckCircle2 size={12} /> ACTIVE</span>;
+      return (
+        <span className="hrms-badge hrms-badge-success" style={{ backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+          <CheckCircle2 size={12} /> APPROVED
+        </span>
+      );
     }
     if (s === 'CLOSED') {
-      return <span className="hrms-badge hrms-badge-neutral"><CheckCircle2 size={12} /> CLOSED</span>;
+      return (
+        <span className="hrms-badge hrms-badge-neutral">
+          <CheckCircle2 size={12} /> CLOSED / REPAID
+        </span>
+      );
     }
     if (s === 'REJECTED') {
-      return <span className="hrms-badge hrms-badge-danger"><XCircle size={12} /> REJECTED</span>;
+      return (
+        <span className="hrms-badge hrms-badge-danger" style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+          <XCircle size={12} /> REJECTED
+        </span>
+      );
     }
-    return <span className="hrms-badge hrms-badge-warning"><Clock size={12} /> PENDING REVIEW</span>;
+    return (
+      <span className="hrms-badge hrms-badge-warning" style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+        <Clock size={12} /> PENDING REVIEW
+      </span>
+    );
   };
 
   return (
@@ -235,9 +266,21 @@ export default function AdminLoans() {
                       </td>
                       <td>{getStatusBadge(l.status)}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                           {isPending && (
                             <>
+                              <button
+                                type="button"
+                                className="hrms-btn-secondary"
+                                style={{ padding: '0.35rem 0.6rem', fontSize: '0.75rem', color: '#047857', borderColor: '#a7f3d0' }}
+                                onClick={() => {
+                                  setSelectedLoanForVerify(l);
+                                  setVerifyModalOpen(true);
+                                }}
+                                title="Review and verify application details"
+                              >
+                                Verify
+                              </button>
                               <button
                                 type="button"
                                 className="hrms-btn-primary"
@@ -251,7 +294,10 @@ export default function AdminLoans() {
                                 type="button"
                                 className="hrms-btn-secondary"
                                 style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', color: '#dc2626' }}
-                                onClick={() => handleUpdateStatus(lId, 'REJECTED')}
+                                onClick={() => {
+                                  setSelectedLoanForReject(l);
+                                  setRejectModalOpen(true);
+                                }}
                                 disabled={actionLoading}
                               >
                                 Reject
@@ -277,6 +323,133 @@ export default function AdminLoans() {
           </table>
         </div>
       </div>
+
+      {/* Verification & Approval Modal */}
+      {verifyModalOpen && selectedLoanForVerify && (
+        <div className="hrms-modal-overlay" onClick={() => setVerifyModalOpen(false)}>
+          <div className="hrms-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="hrms-modal-header">
+              <h3 className="hrms-modal-title">Verify Loan Application</h3>
+              <button type="button" className="hrms-modal-close" onClick={() => setVerifyModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="hrms-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ backgroundColor: '#f0fdf4', padding: '14px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontWeight: 800, color: '#065f46', fontSize: '1rem', marginBottom: '4px' }}>
+                  {selectedLoanForVerify.employee_name || 'Employee'}
+                </div>
+                <div style={{ fontSize: '0.825rem', color: '#047857' }}>
+                  ID: <strong>{selectedLoanForVerify.employee_id}</strong> &bull; Dept: <strong>{selectedLoanForVerify.department || 'Operations'}</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.875rem' }}>
+                <div style={{ padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Loan Type</div>
+                  <div style={{ fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>{selectedLoanForVerify.loan_type}</div>
+                </div>
+                <div style={{ padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Principal Amount</div>
+                  <div style={{ fontWeight: 800, color: '#0b3d2b', marginTop: '2px', fontSize: '1.05rem' }}>
+                    ₹{parseFloat(selectedLoanForVerify.principal_amount || 0).toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div style={{ padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Tenure</div>
+                  <div style={{ fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>{selectedLoanForVerify.term_months} Months</div>
+                </div>
+                <div style={{ padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Monthly Installment (EMI)</div>
+                  <div style={{ fontWeight: 800, color: '#134e4a', marginTop: '2px' }}>
+                    ₹{parseFloat(selectedLoanForVerify.monthly_installment || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / mo
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Stated Purpose / Reason:
+                </label>
+                <div style={{ fontSize: '0.875rem', color: '#1e293b', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', lineHeight: 1.5 }}>
+                  "{selectedLoanForVerify.reason || 'Personal / emergency advance'}"
+                </div>
+              </div>
+            </div>
+
+            <div className="hrms-modal-footer">
+              <button
+                type="button"
+                className="hrms-btn-secondary"
+                style={{ color: '#dc2626' }}
+                onClick={() => {
+                  setVerifyModalOpen(false);
+                  setSelectedLoanForReject(selectedLoanForVerify);
+                  setRejectModalOpen(true);
+                }}
+                disabled={actionLoading}
+              >
+                Reject Application
+              </button>
+              <button
+                type="button"
+                className="hrms-btn-primary"
+                onClick={() => handleUpdateStatus(selectedLoanForVerify.id || selectedLoanForVerify._firestore_id, 'APPROVED')}
+                disabled={actionLoading}
+              >
+                {actionLoading ? 'Processing...' : 'Approve Application'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Reason Modal */}
+      {rejectModalOpen && selectedLoanForReject && (
+        <div className="hrms-modal-overlay" onClick={() => setRejectModalOpen(false)}>
+          <div className="hrms-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+            <div className="hrms-modal-header">
+              <h3 className="hrms-modal-title" style={{ color: '#991b1b' }}>Reject Loan Application</h3>
+              <button type="button" className="hrms-modal-close" onClick={() => setRejectModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleUpdateStatus(selectedLoanForReject.id || selectedLoanForReject._firestore_id, 'REJECTED', rejectionReason);
+            }}>
+              <div className="hrms-modal-body">
+                <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '14px' }}>
+                  You are declining the <strong>{selectedLoanForReject.loan_type}</strong> application for <strong>{selectedLoanForReject.employee_name || selectedLoanForReject.employee_id}</strong> (₹{parseFloat(selectedLoanForReject.principal_amount || 0).toLocaleString('en-IN')}).
+                </p>
+
+                <div className="hrms-form-group">
+                  <label>Reason for Rejection (Visible to Employee)</label>
+                  <textarea
+                    rows="3"
+                    className="hrms-input"
+                    placeholder="e.g., Requested repayment tenure exceeds policy limit, or incomplete service duration."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="hrms-modal-footer">
+                <button type="button" className="hrms-btn-secondary" onClick={() => setRejectModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="hrms-btn-primary" style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }} disabled={actionLoading}>
+                  {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Repayment Schedule Modal */}
       {scheduleModalOpen && selectedSchedule && (

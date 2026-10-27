@@ -1,10 +1,30 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { LogOut, MessageSquare } from 'lucide-react';
 import BrandLogo from '../common/BrandLogo';
+import { chatService } from '../../services/chatService';
 
 export default function AdminNavbar({ onToggleSidebar }) {
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    chatService.getUnreadCount().then((count) => {
+      if (isMounted) setUnreadCount(count);
+    }).catch(() => {});
+
+    const interval = setInterval(() => {
+      chatService.getUnreadCount().then((count) => {
+        if (isMounted) setUnreadCount(count);
+      }).catch(() => {});
+    }, 6000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('arshith_role');
@@ -47,6 +67,48 @@ export default function AdminNavbar({ onToggleSidebar }) {
       </div>
 
       <div className="portal-nav-right">
+        <button
+          type="button"
+          onClick={() => navigate('/admin/chat')}
+          style={{
+            position: 'relative',
+            padding: '7px 12px',
+            borderRadius: '8px',
+            backgroundColor: '#eef2ff',
+            color: '#4f46e5',
+            fontSize: '0.8rem',
+            fontWeight: '700',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            border: '1px solid #c7d2fe',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Open Teams Chat"
+        >
+          <MessageSquare size={16} />
+          <span>Teams Chat</span>
+          {unreadCount > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-6px',
+                backgroundColor: '#ef4444',
+                color: '#ffffff',
+                fontSize: '0.65rem',
+                fontWeight: '800',
+                padding: '1px 6px',
+                borderRadius: '10px',
+                border: '2px solid #ffffff',
+              }}
+            >
+              {unreadCount}
+            </span>
+          )}
+        </button>
+
         <div className="user-profile-badge" title={`${adminName} (${adminEmail})`}>
           <div className="user-avatar" style={{ backgroundColor: '#0b3d2b' }}>
             {adminName.charAt(0).toUpperCase()}

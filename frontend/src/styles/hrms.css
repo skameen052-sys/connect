@@ -359,7 +359,16 @@
   max-width: 900px;
 }
 
+.hrms-modal-content form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .hrms-modal-header {
+  flex-shrink: 0;
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #f1f5f9;
   display: flex;

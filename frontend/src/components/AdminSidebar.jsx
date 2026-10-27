@@ -1,43 +1,32 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, MessageSquare } from 'lucide-react';
 import BrandLogo from './common/BrandLogo';
+import { chatService } from '../services/chatService';
 
 /**
  * AdminSidebar - Administrator Navigation Sidebar & Drawer
- *
- * Implements the exact 14 navigation items in strict requested order:
- * 1. Dashboard
- * 2. Attendance
- * 3. Leave Management
- * 4. Holiday Management
- * 5. Meeting Management
- * 6. Announcements
- * 7. Employees
- * 8. Employee List
- * 9. Teams
- * 10. Work Assignments
- * 11. Work Updates
- * 12. Registration Requests
- * 13. Office Timings
- * 14. Attendance Reports
- *
- * Requirements:
- * - Branded header with ARSHITH Connect logo, Administrator, Admin
- * - Pure white drawer/sidebar body with readable dark text (#1e293b)
- * - Internal scrolling ensuring all 14 items are visible and accessible
- * - Active route highlighting
- * - NO Sign Out / Logout menu item in the sidebar
+ * Includes core navigation items and real-time Teams Chat module.
  */
 export default function AdminSidebar({ onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    chatService.getUnreadCount().then((count) => {
+      if (isMounted) setUnreadChatCount(count);
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [location.pathname]);
 
   const navSections = [
     {
       title: 'Core Operations',
       items: [
         { label: 'Dashboard', path: '/admin/dashboard', aliases: ['/admin', '/admin/dashboard'] },
+        { label: 'Teams Chat', path: '/admin/chat', aliases: ['/admin/chat', '/admin/teams/chat'], hasBadge: true },
         { label: 'Attendance', path: '/admin/attendance', aliases: ['/admin/attendance'] },
         { label: 'Leave Management', path: '/admin/leaves', aliases: ['/admin/leaves', '/admin/leave-management'] },
         { label: 'Holiday Management', path: '/admin/holidays', aliases: ['/admin/holidays', '/admin/holiday-management'] },
@@ -142,6 +131,21 @@ export default function AdminSidebar({ onClose }) {
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <span className="admin-drawer-item-label">{item.label}</span>
+                  {item.hasBadge && unreadChatCount > 0 && (
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        backgroundColor: '#4f46e5',
+                        color: '#ffffff',
+                        fontSize: '0.7rem',
+                        fontWeight: '700',
+                        padding: '1px 7px',
+                        borderRadius: '10px',
+                      }}
+                    >
+                      {unreadChatCount}
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -41,6 +41,10 @@ def _load_local_db() -> Dict[str, List[Dict[str, Any]]]:
                 d["officeSettings"] = d.get("office_timings", [])
             if "settings" not in d:
                 d["settings"] = []
+            if "chat_messages" not in d:
+                d["chat_messages"] = []
+            if "chat_channels" not in d:
+                d["chat_channels"] = []
             return d
 
         if os.path.exists(LOCAL_DB_FILE):
@@ -165,6 +169,10 @@ class FirestoreService:
             "registration_requests": "registration_requests",
             "audit_log": "audit_logs",
             "audit_logs": "audit_logs",
+            "chat_message": "chat_messages",
+            "chat_messages": "chat_messages",
+            "chat_channel": "chat_channels",
+            "chat_channels": "chat_channels",
         }
         return mapping.get(entity.lower(), entity)
 
