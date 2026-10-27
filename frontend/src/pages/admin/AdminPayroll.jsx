@@ -15,6 +15,9 @@ export default function AdminPayroll() {
   const [successMsg, setSuccessMsg] = useState(null);
 
   // Modals & Drawers state
+  const [activeTab, setActiveTab] = useState('runs'); // 'runs' | 'requests'
+  const [downloadRequests, setDownloadRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [isCalcModalOpen, setIsCalcModalOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState(null);
   const [exceptionsData, setExceptionsData] = useState(null);
@@ -45,9 +48,63 @@ export default function AdminPayroll() {
     }
   };
 
+  const fetchDownloadRequests = async () => {
+    setRequestsLoading(true);
+    try {
+      const data = await payslipService.getDownloadRequests();
+      setDownloadRequests(data);
+    } catch (err) {
+      console.error('Error fetching download requests:', err);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchRuns();
+    fetchDownloadRequests();
   }, []);
+
+  const handleApproveDownload = async (payslipId) => {
+    setActionLoading(true);
+    setError(null);
+    try {
+      const res = await payslipService.approveDownload(payslipId, 'Admin authorized official PDF download.');
+      setSuccessMsg(res.message || 'Payslip download approved and unlocked.');
+      fetchDownloadRequests();
+      fetchRuns();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to approve download request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectDownload = async (payslipId) => {
+    const reason = window.prompt('Enter reason for declining this download request:', 'Administrative review required');
+    if (!reason) return;
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      const res = await payslipService.rejectDownload(payslipId, reason);
+      setSuccessMsg(res.message || 'Payslip download request declined.');
+      fetchDownloadRequests();
+      fetchRuns();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to decline download request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAdminDownloadPdf = async (payslipId, month, year) => {
+    try {
+      await payslipService.downloadPayslipPdf(payslipId, `Official_Payslip_${month}_${year}.pdf`);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to download payslip.');
+    }
+  };
 
   const handleCalculateSubmit = async (e) => {
     e.preventDefault();
@@ -269,7 +326,41 @@ export default function AdminPayroll() {
         </div>
       </div>
 
+      {/* Tab Switcher */}
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', alignItems: 'center' }}>
+        <button
+          type="button"
+          className={activeTab === 'runs' ? 'hrms-btn-primary' : 'hrms-btn-secondary'}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600' }}
+          onClick={() => setActiveTab('runs')}
+        >
+          <Calendar size={16} /> Monthly Payroll Runs ({runs.length})
+        </button>
+
+        <button
+          type="button"
+          className={activeTab === 'requests' ? 'hrms-btn-primary' : 'hrms-btn-secondary'}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600', position: 'relative' }}
+          onClick={() => setActiveTab('requests')}
+        >
+          <Lock size={16} /> Payslip Download Requests
+          {downloadRequests.filter(r => (r.download_approval_status || '').toUpperCase() === 'PENDING_APPROVAL').length > 0 && (
+            <span style={{ 
+              backgroundColor: '#ef4444', 
+              color: '#ffffff', 
+              borderRadius: '999px', 
+              padding: '0.1rem 0.5rem', 
+              fontSize: '0.72rem', 
+              fontWeight: '800' 
+            }}>
+              {downloadRequests.filter(r => (r.download_approval_status || '').toUpperCase() === 'PENDING_APPROVAL').length} Pending
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Main Payroll Batches Table */}
+      {activeTab === 'runs' && (
       <div className="hrms-card">
         <div className="hrms-card-header">
           <h2 className="hrms-card-title"><Calendar size={20} /> Monthly Payroll Runs</h2>
@@ -371,6 +462,183 @@ export default function AdminPayroll() {
           </table>
         </div>
       </div>
+      )}
+
+      {/* Payslip Download Requests Table */}
+      {activeTab === 'requests' && (
+        <div className="hrms-card">
+          <div className="hrms-card-header">
+            <div>
+              <h2 className="hrms-card-title"><Lock size={20} /> Payslip Download Authorization Queue</h2>
+              <p className="hrms-page-subtitle" style={{ margin: '0.25rem 0 0' }}>
+                Review and approve employee requests to unlock high-resolution corporate PDF payslip downloads.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="hrms-btn-secondary"
+              onClick={fetchDownloadRequests}
+              disabled={requestsLoading}
+            >
+              <RefreshCw size={15} className={requestsLoading ? 'animate-spin' : ''} /> Refresh Requests
+            </button>
+          </div>
+
+          <div className="hrms-table-container">
+            <table className="hrms-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Statement Period</th>
+                  <th>Net Pay</th>
+                  <th>Employee Purpose / Note</th>
+                  <th>Requested Date</th>
+                  <th>Authorization Status</th>
+                  <th>Admin Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {downloadRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan="7">
+                      <div className="hrms-empty-state">
+                        <Lock className="hrms-empty-icon" />
+                        <p>No payslip download unlock requests found.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  downloadRequests.map((req) => {
+                    const reqId = req.id || req._firestore_id || req.payslip_number;
+                    const status = (req.download_approval_status || 'LOCKED').toUpperCase();
+                    const isPending = status === 'PENDING_APPROVAL';
+                    const isApproved = status === 'APPROVED';
+                    const isRejected = status === 'REJECTED';
+
+                    return (
+                      <tr key={reqId}>
+                        <td>
+                          <strong>{req.employee_name || 'Employee'}</strong>
+                          <div className="hrms-metric-subtext">
+                            Code: {req.employee_code || req.employeeId || req.employee_id || 'AFI-XXXX'} • {req.department || 'Operations'}
+                          </div>
+                        </td>
+                        <td>
+                          <strong>{req.month_name || req.month} {req.year}</strong>
+                          <div className="hrms-metric-subtext" style={{ fontSize: '0.72rem' }}>
+                            Ref: {req.payslip_number || reqId}
+                          </div>
+                        </td>
+                        <td>
+                          <strong style={{ color: '#134e4a', fontSize: '0.95rem' }}>
+                            ₹{parseFloat(req.net_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </td>
+                        <td style={{ maxWidth: '240px' }}>
+                          <span style={{ fontSize: '0.82rem', color: '#334155', fontStyle: req.download_request_reason ? 'normal' : 'italic' }}>
+                            {req.download_request_reason || 'Official copy requested'}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '0.8rem' }}>
+                            {req.download_requested_at ? new Date(req.download_requested_at).toLocaleDateString() : 'N/A'}
+                          </div>
+                          <div className="hrms-metric-subtext" style={{ fontSize: '0.7rem' }}>
+                            {req.download_requested_at ? new Date(req.download_requested_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                          </div>
+                        </td>
+                        <td>
+                          {isApproved && (
+                            <span className="hrms-badge hrms-badge-success" title={`Approved by ${req.download_approved_by || 'Admin'}`}>
+                              <CheckCircle2 size={12} /> Approved & Unlocked
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="hrms-badge" style={{ backgroundColor: '#fef3c7', color: '#92400e', borderColor: '#fde68a' }}>
+                              <Clock size={12} /> Pending Approval
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="hrms-badge" style={{ backgroundColor: '#fee2e2', color: '#991b1b', borderColor: '#fca5a5' }} title={req.download_rejection_reason}>
+                              <AlertTriangle size={12} /> Declined
+                            </span>
+                          )}
+                          {status === 'LOCKED' && (
+                            <span className="hrms-badge" style={{ backgroundColor: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}>
+                              <Lock size={12} /> Locked
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            {isPending && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="hrms-btn-primary"
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', backgroundColor: '#059669' }}
+                                  disabled={actionLoading}
+                                  onClick={() => handleApproveDownload(reqId)}
+                                  title="Authorize employee to download PDF"
+                                >
+                                  <CheckCircle2 size={13} /> Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  className="hrms-btn-secondary"
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                                  disabled={actionLoading}
+                                  onClick={() => handleRejectDownload(reqId)}
+                                  title="Decline download request"
+                                >
+                                  <X size={13} /> Decline
+                                </button>
+                              </>
+                            )}
+                            {isApproved && (
+                              <button
+                                type="button"
+                                className="hrms-btn-secondary"
+                                style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
+                                onClick={() => handleAdminDownloadPdf(reqId, req.month, req.year)}
+                                title="Download official PDF as Admin"
+                              >
+                                <Download size={13} /> PDF
+                              </button>
+                            )}
+                            {(status === 'LOCKED' || isRejected) && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="hrms-btn-secondary"
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', color: '#0f766e', borderColor: '#0f766e' }}
+                                  onClick={() => handleApproveDownload(reqId)}
+                                  title="Directly unlock PDF download"
+                                >
+                                  <Lock size={13} /> Unlock
+                                </button>
+                                <button
+                                  type="button"
+                                  className="hrms-btn-secondary"
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
+                                  onClick={() => handleAdminDownloadPdf(reqId, req.month, req.year)}
+                                  title="Download PDF as Admin"
+                                >
+                                  <Download size={13} /> PDF
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Selected Run Details Drawer / Modal */}
       {selectedRun && (

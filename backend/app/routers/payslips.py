@@ -1,18 +1,30 @@
 """
 Payslips API Router
-Enables digital payslip retrieval, access authorization, and dynamic PDF downloads.
+Enables digital payslip retrieval, locked workflow state management,
+employee download requests, admin approval/rejection governance,
+and corporate PDF downloads matching the Arshith Fresh India Pvt Ltd standard.
 """
 
 from typing import List, Optional, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.dependencies.auth import get_current_user, get_current_admin
 from app.services.firestore_service import FirestoreService
-from app.services.payslip_pdf import generate_payslip_pdf
+from app.services.payslip_pdf import generate_payslip_pdf, number_to_indian_rupees
 
 router = APIRouter(prefix="/payslips", tags=["Payslips"])
+
+
+class DownloadApprovalRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, description="Reason for requesting payslip PDF download")
+
+
+class DownloadApprovalAction(BaseModel):
+    notes: Optional[str] = Field(default=None, description="Approval notes from administrator")
+    reason: Optional[str] = Field(default=None, description="Rejection reason if rejected")
 
 
 def _get_caller_candidate_ids(current_user: Any) -> set:
@@ -69,15 +81,28 @@ def _is_payslip_authorized_for_user(payslip: dict, current_user: Any) -> bool:
     )
 
 
+def _normalize_payslip(p: dict) -> dict:
+    """Ensures consistent defaults for lock and corporate reference fields."""
+    if not p.get("download_approval_status"):
+        p["download_approval_status"] = "LOCKED"
+    if not p.get("company_name"):
+        p["company_name"] = "ARSHITH FRESH INDIA PVT LTD"
+    if not p.get("company_address"):
+        p["company_address"] = "Bangalore, Karnataka, Pincode: 560102"
+    if not p.get("net_salary_words"):
+        p["net_salary_words"] = number_to_indian_rupees(float(p.get("net_salary") or 0.0))
+    return p
+
+
 @router.get("", response_model=List[dict])
 def list_payslips(current_user: Any = Depends(get_current_user)):
     """
     List payslips.
-    Employees receive only their own payslips with full candidate expansion.
+    Employees receive only their own payslips with default locked status.
     Super Admins, HR Admins, and Payroll Admins receive all company payslips.
     """
     role = str(getattr(current_user, "role", "employee")).lower()
-    all_payslips = FirestoreService.get_all("payslips")
+    all_payslips = [_normalize_payslip(p) for p in FirestoreService.get_all("payslips")]
 
     if role == "employee":
         emp_payslips = [p for p in all_payslips if _is_payslip_authorized_for_user(p, current_user)]
@@ -87,12 +112,32 @@ def list_payslips(current_user: Any = Depends(get_current_user)):
     return sorted(all_payslips, key=lambda x: (int(x.get("year", 0)), int(x.get("month", 0))), reverse=True)
 
 
+@router.get("/requests/list")
+def list_download_requests(current_user: Any = Depends(get_current_admin)):
+    """
+    Admin endpoint to view all employee payslip download unlock requests.
+    """
+    all_payslips = [_normalize_payslip(p) for p in FirestoreService.get_all("payslips")]
+    # Filter for payslips with an active request lifecycle
+    requests = [
+        p for p in all_payslips
+        if p.get("download_approval_status") in ["PENDING_APPROVAL", "APPROVED", "REJECTED"]
+        or p.get("download_requested_at")
+    ]
+    # Sort with PENDING_APPROVAL first, then by requested_at descending
+    def sort_key(item):
+        status_rank = 0 if item.get("download_approval_status") == "PENDING_APPROVAL" else 1
+        req_at = item.get("download_requested_at") or ""
+        return (status_rank, req_at)
+
+    return sorted(requests, key=sort_key, reverse=False)
+
+
 @router.get("/{payslip_id}")
 def get_payslip(payslip_id: str, current_user: Any = Depends(get_current_user)):
     """Retrieve detailed payslip metadata and itemized breakdown."""
     payslip = FirestoreService.get_by_id("payslips", str(payslip_id))
     if not payslip:
-        # Check by payslip_number or id
         all_p = FirestoreService.get_all("payslips")
         for p in all_p:
             if str(p.get("id") or p.get("_firestore_id") or p.get("payslip_number")) == str(payslip_id):
@@ -109,13 +154,18 @@ def get_payslip(payslip_id: str, current_user: Any = Depends(get_current_user)):
             detail="Unauthorized: You can only view your own payslips.",
         )
 
-    return payslip
+    return _normalize_payslip(payslip)
 
 
-@router.get("/{payslip_id}/download")
-def download_payslip_pdf(payslip_id: str, current_user: Any = Depends(get_current_user)):
+@router.post("/{payslip_id}/request-download")
+def request_payslip_download(
+    payslip_id: str,
+    payload: DownloadApprovalRequest,
+    current_user: Any = Depends(get_current_user)
+):
     """
-    Dynamically renders and streams the professional branded PDF payslip.
+    Employee endpoint: Raises a request to the Admin to unlock and approve PDF payslip download.
+    Transitions status to 'PENDING_APPROVAL'.
     """
     payslip = FirestoreService.get_by_id("payslips", str(payslip_id))
     if not payslip:
@@ -132,25 +182,185 @@ def download_payslip_pdf(payslip_id: str, current_user: Any = Depends(get_curren
     if role == "employee" and not _is_payslip_authorized_for_user(payslip, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unauthorized: You can only download your own payslip.",
+            detail="Unauthorized: You can only request download for your own payslip.",
         )
 
+    cur_status = payslip.get("download_approval_status", "LOCKED")
+    if cur_status == "APPROVED":
+        return {
+            "message": "Payslip download is already approved and unlocked.",
+            "status": "APPROVED",
+            "payslip": _normalize_payslip(payslip),
+        }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    caller_email = getattr(current_user, "email", "employee")
+
+    update_payload = {
+        "download_approval_status": "PENDING_APPROVAL",
+        "download_requested_at": now_iso,
+        "download_request_reason": payload.reason or "Employee requested payslip download approval.",
+        "download_requested_by": caller_email,
+        "updated_at": now_iso,
+    }
+
+    doc_id = str(payslip.get("id") or payslip.get("_firestore_id") or payslip_id)
+    FirestoreService.update("payslips", doc_id, update_payload)
+    payslip.update(update_payload)
+
+    return {
+        "message": "Download request submitted successfully to Admin for approval.",
+        "status": "PENDING_APPROVAL",
+        "payslip": _normalize_payslip(payslip),
+    }
+
+
+@router.post("/{payslip_id}/approve-download")
+def approve_payslip_download(
+    payslip_id: str,
+    payload: DownloadApprovalAction,
+    current_user: Any = Depends(get_current_admin)
+):
+    """
+    Admin endpoint: Approves the employee's download request, unlocking the PDF for download.
+    Transitions status to 'APPROVED'.
+    """
+    payslip = FirestoreService.get_by_id("payslips", str(payslip_id))
+    if not payslip:
+        all_p = FirestoreService.get_all("payslips")
+        for p in all_p:
+            if str(p.get("id") or p.get("_firestore_id") or p.get("payslip_number")) == str(payslip_id):
+                payslip = p
+                break
+
+    if not payslip:
+        raise HTTPException(status_code=404, detail="Payslip record not found.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    admin_email = getattr(current_user, "email", "admin@arshith.com")
+
+    update_payload = {
+        "download_approval_status": "APPROVED",
+        "download_approved_by": admin_email,
+        "download_approved_at": now_iso,
+        "download_notes": payload.notes or "Admin approved payslip download access.",
+        "updated_at": now_iso,
+    }
+
+    doc_id = str(payslip.get("id") or payslip.get("_firestore_id") or payslip_id)
+    FirestoreService.update("payslips", doc_id, update_payload)
+    payslip.update(update_payload)
+
+    return {
+        "message": f"Payslip download access approved for {payslip.get('employee_name', 'employee')}.",
+        "status": "APPROVED",
+        "payslip": _normalize_payslip(payslip),
+    }
+
+
+@router.post("/{payslip_id}/reject-download")
+def reject_payslip_download(
+    payslip_id: str,
+    payload: DownloadApprovalAction,
+    current_user: Any = Depends(get_current_admin)
+):
+    """
+    Admin endpoint: Rejects the employee's download request.
+    Transitions status to 'REJECTED'.
+    """
+    payslip = FirestoreService.get_by_id("payslips", str(payslip_id))
+    if not payslip:
+        all_p = FirestoreService.get_all("payslips")
+        for p in all_p:
+            if str(p.get("id") or p.get("_firestore_id") or p.get("payslip_number")) == str(payslip_id):
+                payslip = p
+                break
+
+    if not payslip:
+        raise HTTPException(status_code=404, detail="Payslip record not found.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    admin_email = getattr(current_user, "email", "admin@arshith.com")
+
+    update_payload = {
+        "download_approval_status": "REJECTED",
+        "download_rejected_by": admin_email,
+        "download_rejected_at": now_iso,
+        "download_rejection_reason": payload.reason or "Admin declined download authorization.",
+        "updated_at": now_iso,
+    }
+
+    doc_id = str(payslip.get("id") or payslip.get("_firestore_id") or payslip_id)
+    FirestoreService.update("payslips", doc_id, update_payload)
+    payslip.update(update_payload)
+
+    return {
+        "message": f"Payslip download request rejected for {payslip.get('employee_name', 'employee')}.",
+        "status": "REJECTED",
+        "payslip": _normalize_payslip(payslip),
+    }
+
+
+@router.get("/{payslip_id}/download")
+def download_payslip_pdf(payslip_id: str, current_user: Any = Depends(get_current_user)):
+    """
+    Dynamically renders and streams the professional branded PDF payslip.
+    Enforces access control:
+    - Employees can ONLY download if download_approval_status == 'APPROVED'.
+    - Admins can download at any time.
+    """
+    payslip = FirestoreService.get_by_id("payslips", str(payslip_id))
+    if not payslip:
+        all_p = FirestoreService.get_all("payslips")
+        for p in all_p:
+            if str(p.get("id") or p.get("_firestore_id") or p.get("payslip_number")) == str(payslip_id):
+                payslip = p
+                break
+
+    if not payslip:
+        raise HTTPException(status_code=404, detail="Payslip record not found.")
+
+    role = str(getattr(current_user, "role", "employee")).lower()
+    if role == "employee":
+        if not _is_payslip_authorized_for_user(payslip, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: You can only download your own payslip.",
+            )
+
+        # Enforce Locked vs Approved verification
+        approval_status = str(payslip.get("download_approval_status") or "LOCKED").upper()
+        if approval_status != "APPROVED":
+            if approval_status == "PENDING_APPROVAL":
+                msg = "Payslip download request is currently pending Admin review and approval."
+            else:
+                msg = "Payslip download is locked. Please raise an unlock request to your administrator."
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=msg,
+            )
+
+    payslip = _normalize_payslip(payslip)
     detail = payslip.get("detail", payslip)
+    # Merge top-level payslip properties into detail for complete template population
+    merged_detail = {**payslip, **detail}
+
     run_info = {
-        "month": payslip.get("month", 1),
-        "month_name": payslip.get("month_name", "Month"),
+        "month": payslip.get("month", 8),
+        "month_name": payslip.get("month_name", "August"),
         "year": payslip.get("year", 2026),
     }
 
     try:
-        pdf_bytes = generate_payslip_pdf(detail, run_info)
-        emp_id = payslip.get("employee_id", "EMP")
-        month = payslip.get("month", 1)
+        pdf_bytes = generate_payslip_pdf(merged_detail, run_info)
+        emp_id = payslip.get("employee_code") or payslip.get("employeeId") or payslip.get("employee_id", "EMP")
+        month = payslip.get("month", 8)
         year = payslip.get("year", 2026)
         filename = f"Payslip_{year}_{month:02d}_{emp_id}.pdf"
 
-        # Update download status
-        FirestoreService.update("payslips", str(payslip.get("id") or payslip_id), {
+        # Update download tracking
+        doc_id = str(payslip.get("id") or payslip.get("_firestore_id") or payslip_id)
+        FirestoreService.update("payslips", doc_id, {
             "status": "Downloaded",
             "last_downloaded_at": datetime.now(timezone.utc).isoformat(),
         })
@@ -163,6 +373,8 @@ def download_payslip_pdf(payslip_id: str, current_user: Any = Depends(get_curren
                 "Access-Control-Expose-Headers": "Content-Disposition",
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
